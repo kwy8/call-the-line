@@ -41,6 +41,19 @@ npm run cap:android  # build, sync, open in Android Studio
 
 Every change to `src/game.html` goes to all three targets: the web on the next push, the apps on the next `cap:sync` and store build.
 
+## Ads
+
+The game has one ad interface (`Ads` in `src/game.html`) with a provider per platform:
+
+| Where | Provider | Rewarded ("one more overrule") | Interstitial (between tournaments) |
+|---|---|---|---|
+| iOS / Android apps | AdMob via `@capacitor-community/admob` | yes | yes |
+| Game portals (CrazyGames) | portal SDK, loaded by the portal | yes | yes |
+| Your own site / the artifact | none, ads are skipped | – | – |
+| Testing | open the page with `#adsim` | simulated | simulated |
+
+The AdMob unit IDs in `src/game.html` are Google's public **test** units. Before release, create an AdMob account, add both apps, create a rewarded and an interstitial unit per platform, and paste the IDs into `UNITS`. Add your AdMob app IDs to `Info.plist` (`GADApplicationIdentifier`) and `AndroidManifest.xml` (`com.google.android.gms.ads.APPLICATION_ID`) as the plugin's README describes. EU consent is requested through Google's UMP at first ad; keep a privacy policy URL ready for both stores.
+
 ## Tuning
 
 Difficulty lives in the `TIERS` table at the top of the script in `src/game.html`: landing distance, speed range, minimum margin from the line, and the call window per tournament.

@@ -359,6 +359,69 @@ function drawHawk(c){
   g.textAlign='left'; g.fillText('COURT', 8, 16); g.textAlign='right'; g.fillText('OUT', SZ-8, 16);
 }
 
+
+// ---------- Ads: one interface, a provider per platform ----------
+// rewarded()  -> resolves true when the viewer earned the reward (used for "one more overrule")
+// interstitial() -> resolves when the ad is closed (used between tournaments)
+// Providers: AdMob inside the Capacitor apps, the CrazyGames SDK on game portals, a simulated
+// ad when the page is opened with #adsim, and nothing at all otherwise (the game just skips ads).
+const Ads = (function(){
+  // Google's public TEST ad units. Replace with your own AdMob units before release.
+  const UNITS = {
+    android:{ rewarded:'ca-app-pub-3940256099942544/5224354917', interstitial:'ca-app-pub-3940256099942544/1033173712' },
+    ios:    { rewarded:'ca-app-pub-3940256099942544/1712485313', interstitial:'ca-app-pub-3940256099942544/4411468910' },
+  };
+  const admob = ()=> window.Capacitor?.Plugins?.AdMob || null;
+  const crazy = ()=> window.CrazyGames?.SDK?.ad || null;
+  const sim   = ()=> location.hash==='#adsim';
+  let ready=false;
+  async function init(){
+    const A=admob(); if(!A||ready) return;
+    try{
+      await A.initialize({});
+      // EU consent (GDPR) via Google's UMP, handled by the plugin
+      const info=await A.requestConsentInfo({}); if(info.isConsentFormAvailable && info.status==='REQUIRED') await A.showConsentForm();
+      ready=true;
+    }catch(e){ console.warn('AdMob init failed', e); }
+  }
+  function provider(){ return admob()?'admob':crazy()?'crazygames':sim()?'sim':null; }
+  function available(){ return provider()!==null; }
+  function unit(kind){ const plat=window.Capacitor?.getPlatform?.()||'android'; return (UNITS[plat]||UNITS.android)[kind]; }
+  async function rewarded(){
+    const p=provider();
+    try{
+      if(p==='admob'){
+        const A=admob(); await init(); await A.prepareRewardVideoAd({ adId:unit('rewarded') });
+        return await new Promise(res=>{ let got=false;
+          const l1=A.addListener('onRewardedVideoAdReward',()=>{ got=true; });
+          const l2=A.addListener('onRewardedVideoAdDismissed',()=>{ l1.remove(); l2.remove(); res(got); });
+          A.showRewardVideoAd().catch(()=>{ l1.remove(); l2.remove(); res(false); });
+        });
+      }
+      if(p==='crazygames') return await new Promise(res=>crazy().requestAd('rewarded',{ adFinished:()=>res(true), adError:()=>res(false), adStarted:()=>{} }));
+      if(p==='sim') return await simAd('Rewarded ad (simulated)', 4);
+    }catch(e){ console.warn('rewarded ad failed', e); }
+    return false;
+  }
+  async function interstitial(){
+    const p=provider();
+    try{
+      if(p==='admob'){ const A=admob(); await init(); await A.prepareInterstitial({ adId:unit('interstitial') }); await A.showInterstitial(); return; }
+      if(p==='crazygames'){ await new Promise(res=>crazy().requestAd('midgame',{ adFinished:res, adError:res, adStarted:()=>{} })); return; }
+      if(p==='sim'){ await simAd('Interstitial ad (simulated)', 2); }
+    }catch(e){ console.warn('interstitial failed', e); }
+  }
+  function simAd(label, secs){
+    return new Promise(res=>{
+      const prev=$('card').innerHTML;
+      $('card').innerHTML=`<span class="tag">${label}</span><h2>Your ad here</h2><p>Closes in <b id="adT">${secs}</b> s</p>`;
+      $('overlay').hidden=false;
+      let n=secs; const iv=setInterval(()=>{ n--; const t=$('adT'); if(t) t.textContent=n; if(n<=0){ clearInterval(iv); $('card').innerHTML=prev; res(true); } },1000);
+    });
+  }
+  return { available, rewarded, interstitial, provider };
+})();
+
 // ---------- Cards ----------
 function ladderHTML(){
   return `<div class="ladder">${TIERS.map((t,i)=>`${i?'<div class="ln"></div>':''}<div class="st ${i<S.tier?'done':i===S.tier?'now':''}"><i style="background:${t.court}"></i><span>${t.short}</span></div>`).join('')}</div>`;
@@ -377,7 +440,7 @@ function intro(){
     <div class="row"><button class="btn" id="go">Take the chair</button></div>
     ${S.best?`<span class="hint">Best run: ${S.best.toLocaleString()} pts · ${TIERS[Math.min(S.bestTier,TIERS.length-1)].name}</span>`:''}
   `);
-  $('go').onclick=()=>{ S.tier=0; S.score=0; S.streak=0; startTournament(); };
+  $('go').onclick=()=>{ S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); };
 }
 function rulesCard(){
   const prev=S.lastCard, inReview=S.phase==='review';
@@ -409,17 +472,28 @@ function endTournament(){
     ${ladderHTML()}
     <div class="row"><button class="btn" id="go">Next: ${TIERS[S.tier].name}</button></div>
   `);
-  $('go').onclick=startTournament;
+  $('go').onclick=async()=>{ $('go').disabled=true; await Ads.interstitial(); startTournament(); };
 }
 function gameOver(){
-  S.phase='end'; saveBest();
+  S.phase='end';
+  const canRescue = Ads.available() && !S.rescued;
   card(`
     <span class="tag bad">Rule 3</span>
     <h2 class="bad">Three overrules. The cameras take over.</h2>
     <div class="chips"><span class="chip"><b>${S.score.toLocaleString()}</b> pts</span><span class="chip">call <b>${S.call}</b> of ${TIERS[S.tier].name}</span></div>
-    <div class="row"><button class="btn" id="again">Try again</button><button class="btn ghost" id="share">Copy score</button></div>
+    ${canRescue?`<div class="row"><button class="btn" id="rescue">Watch an ad · one more overrule</button></div><span class="hint">Once per run</span>`:''}
+    <div class="row"><button class="btn ${canRescue?'ghost':''}" id="again">Try again</button><button class="btn ghost" id="share">Copy score</button></div>
     <span class="hint" id="shareMsg"></span>
   `);
+  if(canRescue) $('rescue').onclick=async()=>{
+    $('rescue').disabled=true;
+    const ok=await Ads.rewarded();
+    if(!ok){ $('rescue').disabled=false; $('shareMsg').textContent='No ad available right now.'; return; }
+    S.rescued=true; S.over=2; hud();
+    const T=TIERS[S.tier];
+    if(S.call>=T.calls) endTournament(); else startPoint();
+  };
+  saveBest();
   wireEnd();
 }
 function win(){
@@ -434,7 +508,7 @@ function win(){
   wireEnd();
 }
 function wireEnd(){
-  $('again').onclick=()=>{ S.tier=0; S.score=0; S.streak=0; startTournament(); };
+  $('again').onclick=()=>{ S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); };
   $('share').onclick=()=>{
     const txt=`${S.score.toLocaleString()} pts as a tennis line judge in Call the Line, reached ${TIERS[S.tier].name}. You think it's easy? ${location.href}`;
     const ok=()=>{ $('shareMsg').textContent='Copied.'; };
