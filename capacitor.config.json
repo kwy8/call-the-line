@@ -1,0 +1,8 @@
+{
+  "appId": "app.calltheline",
+  "appName": "Call the Line",
+  "webDir": "www",
+  "server": { "androidScheme": "https" },
+  "ios": { "contentInset": "always" },
+  "android": { "allowMixedContent": false }
+}

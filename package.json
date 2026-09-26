@@ -1,0 +1,23 @@
+{
+  "name": "call-the-line",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tennis line-judge reflex game. One HTML page, deployed to the web and wrapped for iOS and Android with Capacitor.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs && npx --yes serve www",
+    "cap:add": "npx cap add ios && npx cap add android",
+    "cap:sync": "npm run build && npx cap sync",
+    "cap:ios": "npm run cap:sync && npx cap open ios",
+    "cap:android": "npm run cap:sync && npx cap open android"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  },
+  "dependencies": {
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "@capacitor/android": "^7.0.0"
+  }
+}

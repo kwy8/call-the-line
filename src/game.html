@@ -1,0 +1,474 @@
+<title>Call the Line</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Barlow:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#F3F5F0; --paper:#FFFFFF; --ink:#16221B; --muted:#5F6B63; --rule:#DCE1D8;
+  --navy:#1F3A5F; --navy-ink:#F4F6F1; --ball:#D6E23A; --ball-dark:#A9B520;
+  --good:#2F8F4E; --bad:#C8402F;
+  --display:"Barlow Condensed","Arial Narrow",Impact,sans-serif;
+  --body:"Barlow","Helvetica Neue",Arial,sans-serif;
+  color-scheme:light;
+}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.4;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+.wrap{max-width:760px;margin:0 auto;padding-block:12px 28px;padding-inline:16px;display:flex;flex-direction:column;gap:10px}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{font-family:var(--display);font-weight:800;font-size:32px;line-height:1;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.brand i{width:14px;height:14px;border-radius:50%;background:var(--ball);border:2px solid var(--ball-dark);display:inline-block}
+.hud{display:flex;gap:18px;align-items:flex-end;font-variant-numeric:tabular-nums}
+.hud .k{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.hud .v{font-family:var(--display);font-weight:800;font-size:26px;line-height:1}
+.strikes{display:flex;gap:4px;padding-block:6px 4px}
+.strikes i{width:14px;height:14px;border-radius:50%;background:var(--ball);border:2px solid var(--ball-dark);display:inline-block}
+.strikes i.hit{background:var(--bad);border-color:#8E2A1E}
+.stage{position:relative;background:var(--paper);border:1px solid var(--rule);border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(22,34,27,.06)}
+.tourney{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--rule);font-size:13px}
+.tourney b{font-family:var(--display);font-weight:800;font-size:17px;text-transform:uppercase;letter-spacing:.02em;display:flex;align-items:center;gap:8px}
+.tourney b i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.tourney .prog{color:var(--muted);font-variant-numeric:tabular-nums}
+canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:none}
+.timer{height:6px;background:var(--rule)}
+.timer > i{display:block;height:100%;width:0%;background:var(--good)}
+.calls{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.call{appearance:none;border:0;border-radius:10px;padding:20px 10px 16px;font-family:var(--display);font-weight:800;font-size:40px;line-height:1;letter-spacing:.04em;text-transform:uppercase;color:#fff;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;box-shadow:inset 0 -4px 0 rgba(0,0,0,.18);transition:transform .06s}
+.call:active{transform:translateY(2px);box-shadow:inset 0 -2px 0 rgba(0,0,0,.18)}
+.call:focus-visible{outline:3px solid var(--navy);outline-offset:3px}
+.call.in{background:var(--good)} .call.out{background:var(--bad)}
+.call small{display:block;font-family:var(--body);font-weight:600;font-size:11px;letter-spacing:.1em;opacity:.8;margin-top:6px}
+.call[disabled]{opacity:.4;cursor:default;box-shadow:none}
+@media (hover:none){ .call small{display:none} .call{padding:22px 10px} }
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(243,245,240,.95);text-align:center}
+.card{max-width:420px;width:100%;display:flex;flex-direction:column;gap:12px;align-items:center}
+.card h2{font-family:var(--display);font-weight:800;font-size:42px;line-height:.95;margin:0;text-transform:uppercase;text-wrap:balance}
+.card h2.bad{color:var(--bad)} .card h2.good{color:var(--good)}
+.card p{margin:0;color:var(--muted);max-width:36ch;text-wrap:pretty}
+.btn{appearance:none;border:0;border-radius:6px;background:var(--navy);color:var(--navy-ink);font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:.05em;text-transform:uppercase;padding:11px 26px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--navy);border:2px solid var(--navy)}
+.btn:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center}
+.hint{font-size:12px;color:var(--muted)}
+.rules{width:100%;text-align:left;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:10px 14px;display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:baseline}
+.rules b{font-family:var(--display);font-weight:800;font-size:22px;color:var(--navy);line-height:1}
+.rules span{font-size:15px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.chip{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--paper);border:1px solid var(--rule);font-variant-numeric:tabular-nums}
+.chip b{font-family:var(--display);font-size:15px;font-weight:800}
+.tag{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:var(--navy);color:var(--navy-ink)}
+.tag.bad{background:var(--bad)} .tag.good{background:var(--good)}
+.hawk{display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:center;text-align:left;width:100%;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:10px}
+.hawk canvas{width:170px;height:170px;aspect-ratio:1;border-radius:6px}
+.hawk .verdict{font-family:var(--display);font-weight:800;font-size:40px;line-height:1;text-transform:uppercase}
+.hawk .mm{font-family:var(--display);font-weight:600;font-size:18px;color:var(--muted);line-height:1.1}
+.hawk .yours{font-size:13px;margin-top:8px;color:var(--muted)}
+.hawk .yours b{color:var(--ink)}
+.ladder{display:flex;align-items:center;width:100%;padding:4px 6px}
+.ladder .st{display:flex;flex-direction:column;align-items:center;gap:4px;flex:0 0 auto}
+.ladder .st i{width:14px;height:14px;border-radius:50%;border:3px solid var(--bg);box-shadow:0 0 0 1px var(--rule)}
+.ladder .st.now i{width:20px;height:20px;box-shadow:0 0 0 2px var(--navy)}
+.ladder .st.done i{opacity:.45}
+.ladder .st span{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+.ladder .st.now span{color:var(--ink);font-weight:600}
+.ladder .ln{flex:1;height:2px;background:var(--rule);margin-bottom:16px}
+footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+footer button{appearance:none;border:0;background:none;color:var(--navy);font:inherit;text-decoration:underline;cursor:pointer;padding:0}
+footer button[disabled]{opacity:.4;text-decoration:none;cursor:default}
+.toast{position:absolute;left:0;right:0;top:44%;text-align:center;font-family:var(--display);font-weight:800;font-size:44px;line-height:1;text-transform:uppercase;letter-spacing:.06em;pointer-events:none;color:#fff;text-shadow:0 2px 0 rgba(0,0,0,.35),0 0 24px rgba(0,0,0,.35)}
+.toast small{display:block;font-size:20px;letter-spacing:.1em;margin-top:6px}
+@media (max-width:480px){
+  .brand{font-size:26px}
+  .hud{gap:12px} .hud .v{font-size:22px}
+  .call{font-size:34px}
+  .card h2{font-size:34px}
+  .hawk{grid-template-columns:130px 1fr} .hawk canvas{width:130px;height:130px}
+  .hawk .verdict{font-size:32px}
+  .ladder .st span{display:none} .ladder .st.now span{display:block}
+  .toast{font-size:36px}
+}
+@media (prefers-reduced-motion:reduce){ .call{transition:none} }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand"><i></i>Call the Line</div>
+    <div class="hud">
+      <div><div class="k">Score</div><div class="v" id="score">0</div></div>
+      <div><div class="k">Streak</div><div class="v" id="streak">0</div></div>
+      <div><div class="k">Best</div><div class="v" id="best">0</div></div>
+      <div><div class="k">Overrules</div><div class="strikes" id="strikes"><i></i><i></i><i></i></div></div>
+    </div>
+  </header>
+
+  <div class="stage">
+    <div class="tourney">
+      <b><i id="tSw"></i><span id="tName">Riverside Club Open</span></b>
+      <span class="prog" id="tProg">Clay</span>
+    </div>
+    <canvas id="court" width="720" height="480" aria-label="Line judge view of a tennis sideline"></canvas>
+    <div class="timer"><i id="timer"></i></div>
+    <div class="toast" id="toast" hidden></div>
+    <div class="overlay" id="overlay"><div class="card" id="card"></div></div>
+  </div>
+
+  <div class="calls">
+    <button class="call in" id="btnIn" disabled>In<small>← / I</small></button>
+    <button class="call out" id="btnOut" disabled>Out<small>→ / O</small></button>
+  </div>
+
+  <footer>
+    <span><button id="rulesBtn" type="button">Rules</button> · <button id="mute" type="button">Sound: on</button></span>
+    <span>Ball 6.7 cm · line 5 cm · your eyes 1.1 m off the ground</span>
+  </footer>
+</div>
+
+<script>
+(function(){
+'use strict';
+// ---------- Tournament ladder ----------
+const TIERS = [
+  {name:'Riverside Club Open',  short:'Club',   surf:'Clay',       calls:10, court:'#C6673C', out:'#B65C34', line:'#F3EDE4', stands:'#CFC7BB', speed:[20,25], near:[2.5,5.5],  margin:[0.02,0.12],  win:2.0,  angle:0.05},
+  {name:'Harbour Challenger',   short:'Chall.', surf:'Green hard', calls:10, court:'#4C8A55', out:'#7C9F60', line:'#FFFFFF', stands:'#C9D0C4', speed:[24,29], near:[3.0,7.0],  margin:[0.012,0.09], win:1.7,  angle:0.07},
+  {name:'Metro Open 250',       short:'250',    surf:'Blue hard',  calls:10, court:'#3E7CBB', out:'#4F8F5F', line:'#FFFFFF', stands:'#C4CDD6', speed:[28,34], near:[3.5,8.5],  margin:[0.008,0.06], win:1.45, angle:0.09},
+  {name:'Capital Masters 1000', short:'1000',   surf:'Blue hard',  calls:12, court:'#2E67A4', out:'#2B4F77', line:'#FFFFFF', stands:'#BEC7D1', speed:[32,40], near:[4.0,10.0], margin:[0.005,0.04], win:1.25, angle:0.11},
+  {name:'The Grand Slam Final', short:'Slam',   surf:'Grass',      calls:12, court:'#4E8C3E', out:'#5D9C4A', line:'#FFFFFF', stands:'#C8CFC2', speed:[36,44], near:[4.5,11.0], margin:[0.002,0.03], win:1.05, angle:0.13},
+];
+const BALL_R = 0.0335, LINE_W = 0.05, MARK_L = 0.11, MARK_W = 0.072, G = 9.81;
+const FAR_BASE = 23.77, NET_Y = 11.885, SVC1 = 5.485, SVC2 = 18.285, CENTRE = -4.115;
+
+// ---------- State ----------
+const S = { tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
+try{ S.best=+localStorage.getItem('ctl.best')||0; S.bestTier=+localStorage.getItem('ctl.tier')||0; S.muted=localStorage.getItem('ctl.mute')==='1'; }catch(e){}
+
+const $ = id=>document.getElementById(id);
+const cv = $('court'), cx = cv.getContext('2d');
+const W = 720, H = 480, FPX = 1400;
+let dpr = 1, booted = false;
+function fit(){ dpr=Math.min(2,window.devicePixelRatio||1); cv.width=W*dpr; cv.height=H*dpr; if(booted && S.phase!=='flight' && S.phase!=='window') drawScene(performance.now()/1000); }
+fit(); window.addEventListener('resize', fit);
+
+// ---------- Camera: in line with the sideline, eye height 1.1 m ----------
+const cam = { x:LINE_W/2, y:-2.6, z:1.1, pitch:0 };
+function setPitch(centerY){ cam.pitch=Math.atan2(cam.z, centerY-cam.y); }
+function proj(x,y,z){
+  const dx=x-cam.x, dy=y-cam.y, dz=z-cam.z, c=Math.cos(cam.pitch), s=Math.sin(cam.pitch);
+  const depth=dy*c-dz*s, up=dy*s+dz*c, d=Math.max(depth,0.05);
+  return { sx:W/2+FPX*dx/d, sy:H/2-FPX*up/d, d:depth };
+}
+function poly(pts, fill){
+  cx.beginPath();
+  pts.forEach((p,i)=>{ const q=proj(p[0],p[1],p[2]||0); i?cx.lineTo(q.sx,q.sy):cx.moveTo(q.sx,q.sy); });
+  cx.closePath(); cx.fillStyle=fill; cx.fill();
+}
+function shade(hex, k){ // darken/lighten a hex colour by factor k
+  const n=parseInt(hex.slice(1),16), r=(n>>16)&255, g=(n>>8)&255, b=n&255;
+  const f=v=>Math.max(0,Math.min(255,Math.round(v*k)));
+  return `rgb(${f(r)},${f(g)},${f(b)})`;
+}
+
+// ---------- Crowd (fixed seed so it doesn't shimmer) ----------
+const CROWD = []; (function(){ let s=7; const r=()=>{ s=(s*16807)%2147483647; return s/2147483647; };
+  const cols=['#5B6B7C','#8A6E5A','#A9A39A','#6E7F6A','#B08B7E','#4F5D73','#C9BFB0','#7A6A80'];
+  for(let i=0;i<420;i++) CROWD.push({x:r(), row:Math.floor(r()*9), o:r(), c:cols[Math.floor(r()*cols.length)]}); })();
+
+// ---------- Scene ----------
+let ball=null, trail=[];
+function drawScene(t){
+  const T=TIERS[S.tier];
+  cx.setTransform(dpr,0,0,dpr,0,0);
+  const hz = proj(0,400,0).sy;
+  // sky
+  const sky=cx.createLinearGradient(0,0,0,hz-70); sky.addColorStop(0,'#EAF0F4'); sky.addColorStop(1,'#F6F7F2');
+  cx.fillStyle=sky; cx.fillRect(0,0,W,hz);
+  // stands: 9 seat rows rising away
+  const top=hz-78;
+  for(let r=0;r<9;r++){ const y=top+r*8; cx.fillStyle=r%2?shade(T.stands,0.96):T.stands; cx.fillRect(0,y,W,8); }
+  cx.fillStyle='rgba(0,0,0,.05)'; cx.fillRect(0,top,W,78);
+  for(const p of CROWD){ const y=top+3+p.row*8; cx.fillStyle=p.c; cx.globalAlpha=0.55+p.o*0.4; cx.beginPath(); cx.arc(p.x*W,y,2.3,0,7); cx.fill(); }
+  cx.globalAlpha=1;
+  // hoarding
+  cx.fillStyle='#1F3A5F'; cx.fillRect(0,hz-8,W,9);
+  cx.fillStyle='rgba(255,255,255,.55)'; cx.font='800 7px "Barlow Condensed", sans-serif'; cx.textAlign='left';
+  for(let x=-20;x<W;x+=120) cx.fillText('CALL THE LINE', x, hz-1.5);
+  // ground
+  const yN=-1.4, yF=60;
+  poly([[-9,yN],[0,yN],[0,yF],[-9,yF]], T.court);
+  poly([[LINE_W,yN],[9,yN],[9,yF],[LINE_W,yF]], T.out);
+  poly([[-9,FAR_BASE],[9,FAR_BASE],[9,yF],[-9,yF]], T.out);
+  // surface texture: faint sweep lines on clay, mow stripes on grass
+  if(T.surf==='Clay'){ cx.fillStyle='rgba(255,255,255,.05)'; for(let y=0;y<FAR_BASE;y+=0.6) poly([[-9,y],[0,y],[0,y+0.25],[-9,y+0.25]],'rgba(255,255,255,.04)'); }
+  if(T.surf==='Grass'){ for(let y=0;y<FAR_BASE;y+=2) poly([[-9,y],[0,y],[0,y+1],[-9,y+1]],'rgba(255,255,255,.06)'); }
+  // depth haze
+  const hz2=cx.createLinearGradient(0,hz,0,H); hz2.addColorStop(0,'rgba(255,255,255,.28)'); hz2.addColorStop(0.35,'rgba(255,255,255,0)');
+  cx.fillStyle=hz2; cx.fillRect(0,hz,W,H-hz);
+  // lines
+  poly([[-9,FAR_BASE],[LINE_W,FAR_BASE],[LINE_W,FAR_BASE+0.1],[-9,FAR_BASE+0.1]], T.line);
+  poly([[CENTRE,SVC1],[0,SVC1],[0,SVC1+0.05],[CENTRE,SVC1+0.05]], T.line);
+  poly([[CENTRE,SVC2],[0,SVC2],[0,SVC2+0.05],[CENTRE,SVC2+0.05]], T.line);
+  poly([[CENTRE,SVC1],[CENTRE+0.05,SVC1],[CENTRE+0.05,SVC2],[CENTRE,SVC2]], T.line);
+  poly([[0,yN],[LINE_W,yN],[LINE_W,FAR_BASE+0.1],[0,FAR_BASE+0.1]], T.line);
+  // net + post
+  poly([[-9,NET_Y,0],[0.95,NET_Y,0],[0.95,NET_Y,1.07],[-9,NET_Y,0.914]], 'rgba(20,30,40,.5)');
+  poly([[-9,NET_Y,0.914],[0.95,NET_Y,1.07],[0.95,NET_Y,1.12],[-9,NET_Y,0.96]], '#F2F2F2');
+  poly([[0.91,NET_Y,0],[0.99,NET_Y,0],[0.99,NET_Y,1.14],[0.91,NET_Y,1.14]], '#2A2F33');
+  // ball
+  if(ball && ball.vis){
+    const sh=proj(ball.x,ball.y,0), r0=FPX*BALL_R/Math.max(sh.d,0.2);
+    cx.fillStyle='rgba(0,0,0,.3)'; cx.beginPath(); cx.ellipse(sh.sx,sh.sy,r0*1.1,r0*0.45,0,0,7); cx.fill();
+    const q=proj(ball.x,ball.y,ball.z), r=Math.max(1.6, FPX*BALL_R/Math.max(q.d,0.2));
+    if(trail.length>1){ // motion blur streak
+      const p=proj(trail[0].x,trail[0].y,trail[0].z);
+      cx.strokeStyle='rgba(214,226,58,.35)'; cx.lineWidth=r*1.6; cx.lineCap='round';
+      cx.beginPath(); cx.moveTo(p.sx,p.sy); cx.lineTo(q.sx,q.sy); cx.stroke();
+    }
+    const sq = ball.squash; // 1 = round, >1 = flattened on impact
+    cx.save(); cx.translate(q.sx,q.sy); cx.scale(sq, 1/sq);
+    const bg=cx.createRadialGradient(-r*.35,-r*.35,r*.2,0,0,r*1.1); bg.addColorStop(0,'#F1F87A'); bg.addColorStop(1,'#B9C51E');
+    cx.fillStyle=bg; cx.beginPath(); cx.arc(0,0,r,0,7); cx.fill(); cx.restore();
+  }
+  // vignette + chair rail
+  const vg=cx.createRadialGradient(W/2,H*0.45,H*0.35,W/2,H*0.45,H*0.95); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,.18)');
+  cx.fillStyle=vg; cx.fillRect(0,0,W,H);
+  cx.fillStyle='#16221B'; cx.fillRect(0,H-16,W,16);
+  cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(0,H-16,W,2);
+  cx.fillStyle='#D6E23A'; cx.font='800 10px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('LINE JUDGE · SIDELINE', 10, H-5);
+  cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(`CALL ${Math.min(S.call,T.calls)} OF ${T.calls}`, W-10, H-5);
+}
+
+// ---------- Ball ----------
+const rnd=(a,b)=>a+Math.random()*(b-a);
+function newBall(){
+  const T=TIERS[S.tier];
+  const vy=-rnd(T.speed[0],T.speed[1]), yL=rnd(T.near[0],T.near[1]);
+  setPitch(yL+1.5);
+  const ang=rnd(T.angle*0.4,T.angle)*(Math.random()<0.5?-1:1), vx=ang*Math.abs(vy);
+  const len=Math.hypot(vx,vy), ux=vx/len, uy=vy/len;
+  const extX=Math.sqrt(Math.pow(MARK_L/2*ux,2)+Math.pow(MARK_W/2*uy,2));
+  // margin between the mark's inner edge and the line's outer edge: negative = in, positive = out
+  const m = Math.random()<0.22 ? rnd(0.06,0.22)*(Math.random()<0.5?-1:1) : rnd(T.margin[0],T.margin[1])*(Math.random()<0.5?-1:1);
+  const a=0.21*Math.abs(vy), spawn=14;
+  ball={ xL:LINE_W+m+extX, yL, vx, vy, a, b:0.55*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, extX, m, isIn:m<0, squash:1 };
+  trail=[];
+}
+function stepBall(t){
+  const b=ball;
+  b.x=b.xL+b.vx*t; b.y=b.yL+b.vy*t;
+  b.z = t<0 ? -b.a*t : Math.max(0, b.b*t-0.5*G*t*t);
+  b.squash = (t>=0 && t<0.045) ? 1.35 : 1;
+  b.vis = b.y > cam.y+0.4;
+  trail.push({x:b.x,y:b.y,z:b.z}); if(trail.length>4) trail.shift();
+}
+
+// ---------- Audio ----------
+function pock(){
+  if(S.muted) return;
+  try{
+    if(!S.sound) S.sound=new (window.AudioContext||window.webkitAudioContext)();
+    const ac=S.sound, o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime;
+    o.type='triangle'; o.frequency.setValueAtTime(420,t); o.frequency.exponentialRampToValueAtTime(140,t+0.08);
+    g.gain.setValueAtTime(0.35,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.12);
+    o.connect(g); g.connect(ac.destination); o.start(); o.stop(t+0.13);
+  }catch(e){}
+}
+
+// ---------- Loop ----------
+let raf=0, tStart=0, callWindow=1, callT=0, resolved=false;
+function loop(ts){
+  const t=(ts-tStart)/1000+ball.t0;
+  if(S.phase==='flight'||S.phase==='window'){
+    stepBall(t);
+    if(S.phase==='flight'&&t>=0){ S.phase='window'; callT=ts; pock(); setButtons(true); }
+    if(S.phase==='window'){
+      const el=(ts-callT)/1000, left=Math.max(0,1-el/callWindow);
+      const bar=$('timer'); bar.style.width=left*100+'%'; bar.style.background = left<0.3?'var(--bad)':left<0.6?'#D28B1C':'var(--good)';
+      if(el>=callWindow) resolve(null, el);
+    }
+  }
+  drawScene(ts/1000);
+  raf=requestAnimationFrame(loop);
+}
+function startPoint(){
+  const T=TIERS[S.tier];
+  S.call++; $('tProg').textContent=`${T.surf} · call ${S.call} of ${T.calls}`;
+  newBall(); callWindow=T.win; resolved=false;
+  $('timer').style.width='100%'; setButtons(false); hideOverlay(); toast('');
+  S.phase='flight'; tStart=performance.now(); cancelAnimationFrame(raf); raf=requestAnimationFrame(loop);
+}
+function setButtons(on){ $('btnIn').disabled=!on; $('btnOut').disabled=!on; $('rulesBtn').disabled=on; }
+function makeCall(c){ if(S.phase!=='window'||resolved) return; resolve(c,(performance.now()-callT)/1000); }
+function resolve(call, elapsed){
+  resolved=true; S.phase='review'; setButtons(false);
+  const right = call!==null && (call==='in')===ball.isIn;
+  if(right){
+    S.streak++;
+    const mult=1+Math.min(4,Math.floor(S.streak/3))*0.5, speed=Math.round(100*Math.max(0,1-elapsed/callWindow));
+    const pts=Math.round((100+speed)*mult); S.score+=pts;
+    toast(call, `+${pts}`);
+  }else{
+    S.streak=0; S.over++;
+    toast(call===null?'No call':call, 'Overruled');
+  }
+  hud();
+  setTimeout(()=>showHawk(right,call,elapsed), 700);
+}
+function toast(big, small){ const el=$('toast'); el.innerHTML = big ? `${big}<small>${small||''}</small>` : ''; el.hidden=!big; }
+
+// ---------- Hawk-Eye review ----------
+function showHawk(right, call, elapsed){
+  const T=TIERS[S.tier], b=ball, mm=Math.round(Math.abs(b.m)*1000);
+  const clearlyIn=(b.xL+b.extX)<0;
+  const by = clearlyIn ? 'Well inside' : (b.isIn?`In by ${mm} mm`:`Out by ${mm} mm`);
+  const yours = call===null ? `No call in ${callWindow} s` : `Your call: <b>${call.toUpperCase()}</b> in ${elapsed.toFixed(2)} s`;
+  const last=S.call>=T.calls, sacked=S.over>=3;
+  const label = sacked?'Continue':last?(S.tier<TIERS.length-1?'Promotion':'Finish'):'Next call';
+  card(`
+    <span class="tag ${right?'good':'bad'}">${right?'Good call':'Overruled'}</span>
+    <div class="hawk">
+      <canvas id="hawk" width="340" height="340" aria-label="Review of the bounce mark"></canvas>
+      <div>
+        <div class="verdict" style="color:${b.isIn?'var(--good)':'var(--bad)'}">${b.isIn?'In':'Out'}</div>
+        <div class="mm">${by}</div>
+        <div class="yours">${yours}<br>${b.yL.toFixed(1)} m away · ${Math.round(Math.abs(b.vy)*3.6)} km/h</div>
+      </div>
+    </div>
+    <div class="row"><button class="btn" id="nx">${label}</button><span class="hint">Space</span></div>
+  `);
+  drawHawk($('hawk'));
+  $('nx').focus();
+  $('nx').onclick=()=> sacked?gameOver():(last?endTournament():startPoint());
+}
+function drawHawk(c){
+  const g=c.getContext('2d'), T=TIERS[S.tier], b=ball, sc=1150, SZ=340;
+  const X=x=>SZ/2+(x-b.xL)*sc, Y=y=>SZ/2-(y-b.yL)*sc;
+  g.fillStyle=T.court; g.fillRect(0,0,SZ,SZ);
+  g.fillStyle=T.out; g.fillRect(X(LINE_W),0,SZ,SZ);
+  g.fillStyle=T.line; g.fillRect(X(0),0,LINE_W*sc,SZ);
+  // mark
+  g.save(); g.translate(X(b.xL),Y(b.yL)); g.rotate(Math.atan2(-b.uy,b.ux)+Math.PI/2);
+  g.beginPath(); g.ellipse(0,0,MARK_W/2*sc,MARK_L/2*sc,0,0,7);
+  g.fillStyle='rgba(214,226,58,.85)'; g.fill(); g.lineWidth=3; g.strokeStyle='#16221B'; g.stroke(); g.restore();
+  // measurement between the mark's inner edge and the line's outer edge
+  const ex=X(b.xL-b.extX), lx=X(LINE_W), my=SZ-46;
+  g.strokeStyle='#16221B'; g.lineWidth=1.5; g.setLineDash([5,4]);
+  g.beginPath(); g.moveTo(ex,18); g.lineTo(ex,my+10); g.moveTo(lx,18); g.lineTo(lx,my+10); g.stroke(); g.setLineDash([]);
+  if(Math.abs(ex-lx)>6){ g.lineWidth=2; g.beginPath(); g.moveTo(Math.min(ex,lx),my); g.lineTo(Math.max(ex,lx),my); g.stroke();
+    [Math.min(ex,lx),Math.max(ex,lx)].forEach((x,i)=>{ const d=i?-1:1; g.beginPath(); g.moveTo(x,my); g.lineTo(x+d*6,my-4); g.lineTo(x+d*6,my+4); g.closePath(); g.fillStyle='#16221B'; g.fill(); }); }
+  g.fillStyle='rgba(255,255,255,.92)'; g.fillRect(SZ/2-58,SZ-34,116,26);
+  g.fillStyle=b.isIn?'#2F8F4E':'#C8402F'; g.font='800 18px "Barlow Condensed", sans-serif'; g.textAlign='center'; g.textBaseline='middle';
+  g.fillText((b.isIn?'IN':'OUT')+' · '+Math.round(Math.abs(b.m)*1000)+' mm', SZ/2, SZ-21);
+  g.textBaseline='alphabetic'; g.font='600 11px Barlow, sans-serif'; g.fillStyle='rgba(255,255,255,.9)';
+  g.textAlign='left'; g.fillText('COURT', 8, 16); g.textAlign='right'; g.fillText('OUT', SZ-8, 16);
+}
+
+// ---------- Cards ----------
+function ladderHTML(){
+  return `<div class="ladder">${TIERS.map((t,i)=>`${i?'<div class="ln"></div>':''}<div class="st ${i<S.tier?'done':i===S.tier?'now':''}"><i style="background:${t.court}"></i><span>${t.short}</span></div>`).join('')}</div>`;
+}
+const RULES = `<div class="rules">
+  <b>1</b><span>Wait for the bounce, then call <b>In</b> or <b>Out</b>. Fast calls score more.</span>
+  <b>2</b><span>If any part of the ball's mark touches the line, it's in.</span>
+  <b>3</b><span>Three overrules in one tournament and the cameras take your chair.</span>
+</div>`;
+function intro(){
+  S.phase='idle';
+  card(`
+    <h2>You think it's easy being a line judge?</h2>
+    ${RULES}
+    ${ladderHTML()}
+    <div class="row"><button class="btn" id="go">Take the chair</button></div>
+    ${S.best?`<span class="hint">Best run: ${S.best.toLocaleString()} pts · ${TIERS[Math.min(S.bestTier,TIERS.length-1)].name}</span>`:''}
+  `);
+  $('go').onclick=()=>{ S.tier=0; S.score=0; S.streak=0; startTournament(); };
+}
+function rulesCard(){
+  const prev=S.lastCard, inReview=S.phase==='review';
+  card(`<h2>Rules</h2>${RULES}<div class="row"><button class="btn" id="go">Back</button></div>`);
+  $('go').onclick=()=>{ if(inReview){ card(prev); rewire(); } else if(S.tier===0&&S.call===0) intro(); else startTournament(); };
+}
+function startTournament(){
+  const T=TIERS[S.tier]; S.call=0; S.over=0; hud();
+  $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
+  S.phase='idle';
+  card(`
+    <span class="tag">Tournament ${S.tier+1} of ${TIERS.length}</span>
+    <h2>${T.name}</h2>
+    <div class="chips"><span class="chip"><b>${T.surf}</b></span><span class="chip"><b>${T.calls}</b> calls</span><span class="chip">up to <b>${Math.round(T.speed[1]*3.6)}</b> km/h</span><span class="chip"><b>${T.win}</b> s to call</span></div>
+    <div class="row"><button class="btn" id="go">Play</button></div>
+  `);
+  $('go').onclick=startPoint;
+  drawScene(performance.now()/1000);
+}
+function endTournament(){
+  S.phase='idle';
+  if(S.tier>=TIERS.length-1){ win(); return; }
+  const bonus=(3-S.over)*250; S.score+=bonus; hud();
+  const T=TIERS[S.tier]; S.tier++;
+  card(`
+    <span class="tag good">Promoted</span>
+    <h2 class="good">${T.name}: survived</h2>
+    <div class="chips"><span class="chip"><b>${S.over}</b> overrule${S.over===1?'':'s'}</span><span class="chip">bonus <b>+${bonus}</b></span></div>
+    ${ladderHTML()}
+    <div class="row"><button class="btn" id="go">Next: ${TIERS[S.tier].name}</button></div>
+  `);
+  $('go').onclick=startTournament;
+}
+function gameOver(){
+  S.phase='end'; saveBest();
+  card(`
+    <span class="tag bad">Rule 3</span>
+    <h2 class="bad">Three overrules. The cameras take over.</h2>
+    <div class="chips"><span class="chip"><b>${S.score.toLocaleString()}</b> pts</span><span class="chip">call <b>${S.call}</b> of ${TIERS[S.tier].name}</span></div>
+    <div class="row"><button class="btn" id="again">Try again</button><button class="btn ghost" id="share">Copy score</button></div>
+    <span class="hint" id="shareMsg"></span>
+  `);
+  wireEnd();
+}
+function win(){
+  S.phase='end'; saveBest();
+  card(`
+    <span class="tag good">Champion</span>
+    <h2 class="good">Hawk-Eye has nothing on you.</h2>
+    <div class="chips"><span class="chip"><b>${S.score.toLocaleString()}</b> pts</span><span class="chip">all <b>${TIERS.length}</b> tournaments</span></div>
+    <div class="row"><button class="btn" id="again">Play again</button><button class="btn ghost" id="share">Copy score</button></div>
+    <span class="hint" id="shareMsg"></span>
+  `);
+  wireEnd();
+}
+function wireEnd(){
+  $('again').onclick=()=>{ S.tier=0; S.score=0; S.streak=0; startTournament(); };
+  $('share').onclick=()=>{
+    const txt=`${S.score.toLocaleString()} pts as a tennis line judge in Call the Line, reached ${TIERS[S.tier].name}. You think it's easy? ${location.href}`;
+    const ok=()=>{ $('shareMsg').textContent='Copied.'; };
+    try{ navigator.clipboard.writeText(txt).then(ok).catch(()=>{ $('shareMsg').textContent=txt; }); }catch(e){ $('shareMsg').textContent=txt; }
+  };
+}
+function saveBest(){
+  if(S.score>S.best){ S.best=S.score; S.bestTier=S.tier; try{ localStorage.setItem('ctl.best',S.best); localStorage.setItem('ctl.tier',S.tier); }catch(e){} }
+  hud();
+}
+function hud(){
+  $('score').textContent=S.score.toLocaleString(); $('streak').textContent=S.streak; $('best').textContent=S.best.toLocaleString();
+  [...$('strikes').children].forEach((i,k)=>i.classList.toggle('hit',k<S.over));
+}
+function card(html){ S.lastCard=html; $('card').innerHTML=html; $('overlay').hidden=false; }
+function rewire(){ const n=$('nx'); if(n){ const T=TIERS[S.tier], last=S.call>=T.calls, sacked=S.over>=3; n.onclick=()=> sacked?gameOver():(last?endTournament():startPoint()); if($('hawk')) drawHawk($('hawk')); } }
+function hideOverlay(){ $('overlay').hidden=true; }
+
+// ---------- Input ----------
+$('btnIn').addEventListener('pointerdown', e=>{ e.preventDefault(); makeCall('in'); });
+$('btnOut').addEventListener('pointerdown', e=>{ e.preventDefault(); makeCall('out'); });
+document.addEventListener('keydown', e=>{
+  if(e.repeat) return;
+  const k=e.key.toLowerCase();
+  if(e.key==='ArrowLeft'||k==='i') makeCall('in');
+  else if(e.key==='ArrowRight'||k==='o') makeCall('out');
+  else if((e.key===' '||e.key==='Enter') && S.phase==='review'){ const n=$('nx'); if(n){ e.preventDefault(); n.click(); } }
+});
+$('rulesBtn').onclick=()=>{ if(S.phase==='idle'||S.phase==='review') rulesCard(); };
+$('mute').onclick=()=>{ S.muted=!S.muted; $('mute').textContent='Sound: '+(S.muted?'off':'on'); try{localStorage.setItem('ctl.mute',S.muted?'1':'0')}catch(e){} };
+$('mute').textContent='Sound: '+(S.muted?'off':'on');
+
+// ---------- Boot ----------
+function start(){ booted=true; hud(); setPitch(6); newBall(); ball.vis=false; drawScene(0); intro(); }
+window.claude?.hot?.ready ? window.claude.hot.ready(start) : start();
+})();
+</script>
