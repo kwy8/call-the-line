@@ -27,7 +27,7 @@ header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;
 .tourney b{font-family:var(--display);font-weight:800;font-size:17px;text-transform:uppercase;letter-spacing:.02em;display:flex;align-items:center;gap:8px}
 .tourney b i{width:10px;height:10px;border-radius:2px;display:inline-block}
 .tourney .prog{color:var(--muted);font-variant-numeric:tabular-nums}
-canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:none}
+canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:pan-y}
 .timer{height:6px;background:var(--rule)}
 .timer > i{display:block;height:100%;width:0%;background:var(--good)}
 .calls{display:grid;grid-template-columns:1fr 1fr;gap:10px;position:relative}
@@ -42,7 +42,7 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:non
 .call.in{background:var(--good)} .call.out{background:var(--bad)}
 .call small{display:block;font-family:var(--body);font-weight:600;font-size:11px;letter-spacing:.1em;opacity:.8;margin-top:6px}
 .call[disabled]{opacity:.4;cursor:default;box-shadow:none}
-@media (hover:none){ .call small,.hint.kbd{display:none} .call{padding:22px 10px} footer button{padding:12px 4px;margin:-12px -4px} }
+@media (hover:none){ .call small,.hint.kbd{display:none} .call{padding:22px 10px} }
 .overlay{position:absolute;inset:0;display:flex;align-items:safe center;justify-content:center;padding:12px;background:rgba(243,245,240,.96);text-align:center;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .card{max-width:420px;width:100%;display:flex;flex-direction:column;gap:10px;align-items:center;margin:auto 0}
 .card h2{font-family:var(--display);font-weight:800;font-size:42px;line-height:.95;margin:0;text-transform:uppercase;text-wrap:balance}
@@ -102,7 +102,7 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:non
 .ladder .st.now span{color:var(--ink);font-weight:600}
 .ladder .ln{flex:1;height:2px;background:var(--rule);margin-bottom:16px}
 footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
-footer button{appearance:none;border:0;background:none;color:var(--navy);font:inherit;text-decoration:underline;cursor:pointer;padding:0}
+footer button{appearance:none;border:0;background:none;color:var(--navy);font:inherit;text-decoration:underline;cursor:pointer;display:inline-block;min-height:44px;padding:13px 4px;margin:-13px -4px}
 footer button[disabled]{opacity:.4;text-decoration:none;cursor:default}
 footer button.confirm{color:var(--bad);font-weight:600}
 .toast{position:absolute;left:0;right:0;top:44%;text-align:center;font-family:var(--display);font-weight:800;font-size:44px;line-height:1;text-transform:uppercase;letter-spacing:.06em;pointer-events:none;color:#fff;text-shadow:0 2px 0 rgba(0,0,0,.35),0 0 24px rgba(0,0,0,.35)}
@@ -126,6 +126,7 @@ footer button.confirm{color:var(--bad);font-weight:600}
   .ladder .st span{display:none} .ladder .st.now span{display:block}
   .toast{font-size:36px}
 }
+@media (max-width:359px){ .hawk{grid-template-columns:1fr;justify-items:center;text-align:center} }
 @media (prefers-reduced-motion:reduce){ .call{transition:none} .demo *{animation:none!important} .demo .dm-pos,.demo .out .dm-mark{opacity:0} .demo .dm-q{opacity:1} }
 </style>
 
@@ -159,7 +160,7 @@ footer button.confirm{color:var(--bad);font-weight:600}
 
   <footer>
     <span><span id="homeWrap" hidden><button id="home" type="button">Home</button> · </span><button id="rulesBtn" type="button">Rules</button> · <button id="mute" type="button">Sound: on</button></span>
-    <span>Ball 6.7 cm · line 5 cm · your eyes 1.1 m off the ground</span>
+    <span>Ball 6.7 cm · line 5 cm</span>
   </footer>
 </div>
 
@@ -409,7 +410,7 @@ function loop(ts){
     }
   }
   drawScene(ts/1000);
-  raf=requestAnimationFrame(loop);
+  if(S.phase==='flight'||S.phase==='window') raf=requestAnimationFrame(loop);
 }
 function startPoint(){
   S.call++;
@@ -418,12 +419,14 @@ function startPoint(){
   $('tProg').textContent = `${T.surf} · call ${S.call} of ${S.mode==='daily'?DAILY_N:T.calls} · ${SEATS[seatFor(S.call)].name}`;
   newBall(); callWindow=T.win; resolved=false;
   $('timer').style.width='100%'; setButtons(false); hideOverlay(); toast('');
+  clearTimeout(quipTimer); $('quip').hidden=true;
   S.phase='flight'; tStart=performance.now(); cancelAnimationFrame(raf); raf=requestAnimationFrame(loop);
 }
 function setButtons(on){ $('btnIn').disabled=!on; $('btnOut').disabled=!on; $('rulesBtn').disabled=on; }
 function makeCall(c){ if(S.phase!=='window'||resolved) return; resolve(c,(performance.now()-callT)/1000); }
 function resolve(call, elapsed){
   resolved=true; S.phase='review'; setButtons(false);
+  cancelAnimationFrame(raf); drawScene(performance.now()/1000);  // last frame; nothing moves under the cards
   const right = call!==null && (call==='in')===ball.isIn;
   if(right){
     S.streak++;
@@ -477,6 +480,7 @@ function showHawk(right, call, elapsed){
   $('nx').onclick=nextStep;
 }
 function nextStep(){
+  if(S.phase!=='review') return;  // a double tap or Space+click must not skip a ball
   if(S.mode==='daily'){ S.call>=DAILY_N ? dailyResults() : startPoint(); return; }
   const T=TIERS[S.tier];
   S.over>=3 ? gameOver() : (S.call>=T.calls ? endTournament() : startPoint());
@@ -623,9 +627,11 @@ function intro(){
   $('daily').onclick=()=> dailyLoad() ? dailyResults() : dailyIntro();
 }
 function rulesCard(){
-  const prev=S.lastCard, inReview=S.phase==='review';
+  const c=$('card'), saved=document.createDocumentFragment();
+  while(c.firstChild) saved.appendChild(c.firstChild);
+  const back=()=>{ c.replaceChildren(saved); $('overlay').hidden=false; $('nx')?.focus(); };
   card(`<h2>Rules</h2>${RULES}<div class="row"><button class="btn" id="go">Back</button></div>`);
-  $('go').onclick=()=>{ if(inReview){ card(prev); rewire(); } else if(S.mode==='daily') dailyIntro(); else if(S.tier===0&&S.call===0) intro(); else startTournament(); };
+  $('go').onclick=back;
 }
 function startTournament(){
   const T=TIERS[S.tier]; S.call=0; S.over=0; hud();
@@ -716,7 +722,7 @@ function dailyIntro(){
   card(`
     <span class="tag">Daily challenge</span>
     <h2>Daily #${n}</h2>
-    <p>The same ${DAILY_N} balls for everyone today, from club clay to Slam grass. No overrule limit, and one attempt: it counts from the moment you start.</p>
+    <p>Same ${DAILY_N} balls for everyone today. One attempt.</p>
     <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
   `);
   $('go').onclick=dailyStart;
@@ -780,9 +786,9 @@ function saveBest(){
 function hud(){
   $('score').textContent=S.score.toLocaleString(); $('streak').textContent=S.streak; $('best').textContent=S.best.toLocaleString();
   [...$('strikes').children].forEach((i,k)=>i.classList.toggle('hit',k<S.over));
+  $('strikes').parentElement.hidden = S.mode==='daily';
 }
-function card(html){ S.lastCard=html; $('card').innerHTML=html; $('overlay').hidden=false; $('homeWrap').hidden=false; }
-function rewire(){ const n=$('nx'); if(n){ n.onclick=nextStep; if($('hawk')) drawHawk($('hawk')); } }
+function card(html){ $('card').innerHTML=html; $('overlay').hidden=false; $('homeWrap').hidden=false; }
 function hideOverlay(){ $('overlay').hidden=true; }
 
 // ---------- Input ----------
@@ -804,7 +810,7 @@ $('home').onclick=()=>{
   disarmHome(); goHome();
 };
 function disarmHome(){ clearTimeout(homeArm); homeArm=0; $('home').textContent='Home'; $('home').classList.remove('confirm'); }
-$('rulesBtn').onclick=()=>{ if(S.phase==='idle'||S.phase==='review') rulesCard(); };
+$('rulesBtn').onclick=()=>{ if(S.phase==='idle'||(S.phase==='review' && $('nx') && !$('overlay').hidden)) rulesCard(); };
 $('mute').onclick=()=>{ S.muted=!S.muted; $('mute').textContent='Sound: '+(S.muted?'off':'on'); try{localStorage.setItem('ctl.mute',S.muted?'1':'0')}catch(e){} };
 $('mute').textContent='Sound: '+(S.muted?'off':'on');
 
