@@ -86,13 +86,13 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:pan
 .dots{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;max-width:300px}
 .dots i{width:11px;height:11px;border-radius:50%;background:var(--rule);display:inline-block}
 .dots i.y{background:var(--good)} .dots i.n{background:var(--bad)}
-.hawk{display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:center;text-align:left;width:100%;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:10px}
-.hawk canvas{width:170px;height:170px;aspect-ratio:1;border-radius:6px}
-.hawk .seat{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
-.hawk .verdict{font-family:var(--display);font-weight:800;font-size:40px;line-height:1;text-transform:uppercase}
-.hawk .mm{font-family:var(--display);font-weight:600;font-size:18px;color:var(--muted);line-height:1.1}
-.hawk .yours{font-size:13px;margin-top:8px;color:var(--muted)}
-.hawk .yours b{color:var(--ink)}
+.eagle{display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:center;text-align:left;width:100%;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:10px}
+.eagle canvas{width:170px;height:170px;aspect-ratio:1;border-radius:6px}
+.eagle .seat{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.eagle .verdict{font-family:var(--display);font-weight:800;font-size:40px;line-height:1;text-transform:uppercase}
+.eagle .mm{font-family:var(--display);font-weight:600;font-size:18px;color:var(--muted);line-height:1.1}
+.eagle .yours{font-size:13px;margin-top:8px;color:var(--muted)}
+.eagle .yours b{color:var(--ink)}
 .ladder{display:flex;align-items:center;width:100%;padding:4px 6px}
 .ladder .st{display:flex;flex-direction:column;align-items:center;gap:4px;flex:0 0 auto}
 .ladder .st i{width:14px;height:14px;border-radius:50%;border:3px solid var(--bg);box-shadow:0 0 0 1px var(--rule)}
@@ -121,12 +121,12 @@ footer button.confirm{color:var(--bad);font-weight:600}
   .hud{gap:12px} .hud .v{font-size:22px}
   .call{font-size:34px}
   .card h2{font-size:34px}
-  .hawk{grid-template-columns:130px 1fr} .hawk canvas{width:130px;height:130px}
-  .hawk .verdict{font-size:32px}
+  .eagle{grid-template-columns:130px 1fr} .eagle canvas{width:130px;height:130px}
+  .eagle .verdict{font-size:32px}
   .ladder .st span{display:none} .ladder .st.now span{display:block}
   .toast{font-size:36px}
 }
-@media (max-width:359px){ .hawk{grid-template-columns:1fr;justify-items:center;text-align:center} }
+@media (max-width:359px){ .eagle{grid-template-columns:1fr;justify-items:center;text-align:center} }
 @media (prefers-reduced-motion:reduce){ .call{transition:none} .demo *{animation:none!important} .demo .dm-pos,.demo .out .dm-mark{opacity:0} .demo .dm-q{opacity:1} }
 </style>
 
@@ -397,7 +397,7 @@ function chime(){ // two soft rising notes
 }
 
 // ---------- Loop ----------
-let raf=0, tStart=0, callWindow=1, callT=0, resolved=false, hawkTimer=0;
+let raf=0, tStart=0, callWindow=1, callT=0, resolved=false, eagleTimer=0;
 function loop(ts){
   const t=(ts-tStart)/1000+ball.t0;
   if(S.phase==='flight'||S.phase==='window'){
@@ -441,7 +441,7 @@ function resolve(call, elapsed){
   if(!right){ murmur(); quip('Player', pickQuote(), false); }
   else if(Math.abs(ball.m)<=0.005){ chime(); quip('Umpire', 'Good eyes.', true); }
   hud();
-  hawkTimer=setTimeout(()=>showHawk(right,call,elapsed), 700);
+  eagleTimer=setTimeout(()=>showEagle(right,call,elapsed), 700);
 }
 const QUOTES = ['You cannot be serious.','Are you watching the same match?','Were you even looking?','Get your eyes checked.',
   'Is that chair comfortable?','Wake up, line!','How much are they paying you?','Unbelievable. Just unbelievable.'];
@@ -453,8 +453,8 @@ function quip(who, line, ump){
 }
 function toast(big, small){ const el=$('toast'); el.innerHTML = big ? `${big}<small>${small||''}</small>` : ''; el.hidden=!big; }
 
-// ---------- Hawk-Eye review ----------
-function showHawk(right, call, elapsed){
+// ---------- Eagle-Eye review ----------
+function showEagle(right, call, elapsed){
   const T=TIERS[S.tier], b=ball, mm=Math.round(Math.abs(b.m)*1000);
   const clearlyIn = b.m+2*b.ext < -LINE_W;  // the whole mark is inside the line's inner edge
   const by = clearlyIn ? 'Well inside' : (b.isIn?`In by ${mm} mm`:`${b.seat==='base'?'Long':'Out'} by ${mm} mm`);
@@ -464,8 +464,8 @@ function showHawk(right, call, elapsed){
   const label = S.mode==='daily' ? (S.call>=DAILY_N?'Results':'Next call') : sacked?'Continue':last?(S.tier<TIERS.length-1?'Promotion':'Finish'):'Next call';
   card(`
     <span class="tag ${right?'good':'bad'}">${right?'Good call':'Overruled'}</span>
-    <div class="hawk">
-      <canvas id="hawk" width="340" height="340" aria-label="Review of the bounce mark"></canvas>
+    <div class="eagle">
+      <canvas id="eagle" width="340" height="340" aria-label="Review of the bounce mark"></canvas>
       <div>
         <div class="seat">${SEATS[b.seat].name} judge</div>
         <div class="verdict" style="color:${b.isIn?'var(--good)':'var(--bad)'}">${b.isIn?'In':'Out'}</div>
@@ -475,7 +475,7 @@ function showHawk(right, call, elapsed){
     </div>
     <div class="row"><button class="btn" id="nx">${label}</button><span class="hint kbd">Space</span></div>
   `);
-  drawHawk($('hawk'));
+  drawEagle($('eagle'));
   $('nx').focus();
   $('nx').onclick=nextStep;
 }
@@ -485,7 +485,7 @@ function nextStep(){
   const T=TIERS[S.tier];
   S.over>=3 ? gameOver() : (S.call>=T.calls ? endTournament() : startPoint());
 }
-function drawHawk(c){
+function drawEagle(c){
   const g=c.getContext('2d'), T=TIERS[S.tier], b=ball, sc=1150, SZ=340;
   const X=x=>SZ/2+(x-b.xL)*sc, Y=y=>SZ/2-(y-b.yL)*sc;
   const base = b.seat==='base';
@@ -687,7 +687,7 @@ function win(){
   S.phase='end'; saveBest();
   card(`
     <span class="tag good">Champion</span>
-    <h2 class="good">Hawk-Eye has nothing on you.</h2>
+    <h2 class="good">Eagle-Eye has nothing on you.</h2>
     <div class="chips"><span class="chip"><b>${S.score.toLocaleString()}</b> pts</span><span class="chip">all <b>${TIERS.length}</b> tournaments</span></div>
     <div class="row"><button class="btn" id="again">Play again</button><button class="btn ghost" id="share">Copy score</button></div>
     <span class="hint" id="shareMsg"></span>
@@ -763,7 +763,7 @@ function dailyExit(){ goHome(); }
 // Back to the start screen from anywhere: stop the ball, drop any pending review, reset the run.
 // A career run's score still counts towards the best; a daily attempt stays used.
 function goHome(){
-  S.run++; cancelAnimationFrame(raf); clearTimeout(hawkTimer); resolved=true;
+  S.run++; cancelAnimationFrame(raf); clearTimeout(eagleTimer); resolved=true;
   if(S.mode==='career' && S.phase!=='end') saveBest();
   S.mode='career'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; S.rescued=false; R=Math.random;
   toast(''); $('quip').hidden=true; $('timer').style.width='0%'; setButtons(false);
