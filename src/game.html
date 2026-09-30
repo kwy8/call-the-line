@@ -83,7 +83,7 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:pan
 .chip{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--paper);border:1px solid var(--rule);font-variant-numeric:tabular-nums}
 .chip.badge{color:var(--muted);opacity:.55}
 .chip.badge.got{color:var(--good);border-color:var(--good);opacity:1;font-weight:600}
-.seatmap{display:block;width:160px;height:100px;margin-bottom:-4px}
+.seatmap{display:block;width:100px;height:160px;margin-bottom:-4px}
 .subhead{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:4px}
 .badge-toast{position:absolute;left:0;right:0;top:46px;display:flex;justify-content:center;pointer-events:none;z-index:2}
 .badge-toast span{background:var(--ink);color:var(--ball);border-radius:999px;padding:6px 14px;font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 2px 6px rgba(22,34,27,.25);max-width:calc(100% - 24px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -188,14 +188,17 @@ const DAILY_N = 20, BALLS_PER_TIER = 4, DAILY_EPOCH = [2026,9,30]; // daily #1
 const BALL_R = 0.0335, LINE_W = 0.05, MARK_L = 0.11, MARK_W = 0.072, G = 9.81;
 const FAR_BASE = 23.77, NET_Y = 11.885, SVC1 = 5.485, SVC2 = 18.285, CENTRE = -4.115, SINGLES_W = 8.23;
 // Views: how a seat is simulated and measured. axis = the coordinate the margin is measured on, line = outer edge of the
-// judged line on that axis, cam = judge's eye position (x, y), aim = metres past the landing spot the camera centres on.
-//   side: end of the right sideline, looking down it (in/out across x)
-//   base: centred behind the near baseline (long/in along y)
-//   svc:  just outside the right singles sideline, behind the near service line, looking across it (long/in along y)
+// judged line on that axis, cam = judge's eye position (x, y), yaw = which way the judge faces (0 = down the court, -90
+// degrees = across it towards the far sideline), aim = metres past the landing spot the camera centres on.
+// Every judge sits 2.6 m beyond the end of their line, in line with it, looking along it:
+//   side: end of the right sideline, looking down the court (in/out across x)
+//   base: outside the right sideline at the end of the near baseline, looking across the court (long/in along y)
+//   svc:  outside the right sideline at the end of the near service line, looking across the court (long/in along y)
+const ACROSS = -Math.PI/2;
 const VIEWS = {
-  side: { axis:'x', line:LINE_W, cam:[LINE_W/2, -2.6],    aim:1.5 },
-  base: { axis:'y', line:0,      cam:[CENTRE, -4.2],      aim:2.7 },
-  svc:  { axis:'y', line:SVC1,   cam:[0.35, SVC1-4.2],    aim:2.7 },
+  side: { axis:'x', line:LINE_W, cam:[LINE_W/2, -2.6],              yaw:0,      aim:1.5 },
+  base: { axis:'y', line:0,      cam:[LINE_W+2.6, LINE_W/2],        yaw:ACROSS, aim:1.5 },
+  svc:  { axis:'y', line:SVC1,   cam:[LINE_W+2.6, SVC1+LINE_W/2],   yaw:ACROSS, aim:1.5 },
 };
 // The court is symmetric, so a left-hand seat sees exactly the right-hand view in a mirror (flip), and the far baseline
 // seen from behind looks the same as the near one (far). Play always runs in the right/near frame; only the picture flips.
@@ -240,10 +243,13 @@ function fit(){
 fit(); window.addEventListener('resize', fit); window.addEventListener('orientationchange', ()=>setTimeout(fit,150));
 
 // ---------- Camera: in line with the sideline, eye height 1.1 m ----------
-const cam = { x:LINE_W/2, y:-2.6, z:1.1, pitch:0, flip:false };
-function setPitch(centerY){ const tall=H>W; cam.pitch=Math.atan2(cam.z, (tall?centerY*0.85:centerY)-cam.y); }
+const cam = { x:LINE_W/2, y:-2.6, z:1.1, pitch:0, yaw:0, flip:false };
+const fwd = (x,y) => x*Math.sin(cam.yaw)+y*Math.cos(cam.yaw);   // position along the direction the judge faces
+// tilt the camera down to a point at forward position f (for yaw 0 that is simply a y coordinate)
+function setPitch(f){ const tall=H>W; cam.pitch=Math.atan2(cam.z, (tall?f*0.85:f)-fwd(cam.x,cam.y)); }
 function proj(x,y,z){
-  const dx=x-cam.x, dy=y-cam.y, dz=z-cam.z, c=Math.cos(cam.pitch), s=Math.sin(cam.pitch);
+  const ox=x-cam.x, oy=y-cam.y, cy=Math.cos(cam.yaw), sy=Math.sin(cam.yaw);
+  const dx=ox*cy-oy*sy, dy=ox*sy+oy*cy, dz=z-cam.z, c=Math.cos(cam.pitch), s=Math.sin(cam.pitch);  // dx right, dy forward
   const depth=dy*c-dz*s, up=dy*s+dz*c, d=Math.max(depth,0.05);
   return { sx:W/2+(cam.flip?-1:1)*FPX*dx/d, sy:H*0.5-FPX*up/d, d:depth };
 }
@@ -268,10 +274,11 @@ let ball=null, trail=[];
 function drawScene(t){
   const T=TIERS[S.tier];
   cx.setTransform(dpr,0,0,dpr,0,0);
-  const hz = proj(0,400,0).sy;
+  const hz = proj(cam.x+400*Math.sin(cam.yaw), cam.y+400*Math.cos(cam.yaw), 0).sy;
   // sky
   const sky=cx.createLinearGradient(0,0,0,hz-70); sky.addColorStop(0,'#EAF0F4'); sky.addColorStop(1,'#F6F7F2');
   cx.fillStyle=sky; cx.fillRect(0,0,W,hz);
+  cx.fillStyle=T.out; cx.fillRect(0,hz,W,H-hz);  // ground to the horizon, so no earlier frame shows through
   // stands: 9 seat rows rising away
   const top=hz-78;
   for(let r=0;r<9;r++){ const y=top+r*8; cx.fillStyle=r%2?shade(T.stands,0.96):T.stands; cx.fillRect(0,y,W,8); }
@@ -330,8 +337,11 @@ function drawScene(t){
   cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(`CALL ${Math.min(S.call,total)} OF ${total}`, W-10, H-5);
 }
 function drawBaseCourt(T, hz){ // looking down the court: both singles sidelines, baseline and service lines across the view
-  const L=-SINGLES_W, yN=cam.y+1.2, yF=60, BW=LINE_W, y0=Math.max(0,yN);  // nothing behind the judge is drawn
-  poly([[-20,yN],[14,yN],[14,yF],[-20,yF]], T.out);
+  const L=-SINGLES_W, BW=LINE_W, across=cam.yaw!==0;
+  // nothing behind the judge is drawn: facing down the court that means y < yN, facing across it x > cam.x-1.2
+  const yN = across ? -15 : cam.y+1.2, yF=60, y0=Math.max(0,yN);
+  if(across) poly([[-25,-15],[cam.x-1.2,-15],[cam.x-1.2,yF],[-25,yF]], T.out);
+  else poly([[-20,yN],[14,yN],[14,yF],[-20,yF]], T.out);
   poly([[L,y0],[LINE_W,y0],[LINE_W,FAR_BASE],[L,FAR_BASE]], T.court);
   if(T.surf==='Clay'){ for(let y=0;y<FAR_BASE;y+=0.6) if(y>=y0) poly([[L,y],[LINE_W,y],[LINE_W,y+0.25],[L,y+0.25]],'rgba(255,255,255,.04)'); }
   if(T.surf==='Grass'){ for(let y=0;y<FAR_BASE;y+=2) if(y>=y0) poly([[L,y],[LINE_W,y],[LINE_W,y+1],[L,y+1]],'rgba(255,255,255,.06)'); }
@@ -359,10 +369,10 @@ let R=Math.random; // swapped for a seeded generator during the daily challenge
 const rnd=(a,b)=>a+R()*(b-a);
 function newBall(){
   const T=TIERS[S.tier], seat=SEATS[S.seat], view=seat.view, V=VIEWS[view];
-  cam.x=V.cam[0]; cam.y=V.cam[1]; cam.flip=!!seat.flip;
-  // along the judged line: distance down the sideline, across the baseline, or across the service box near the
-  // sideline the judge sits beside, all within the judge's view
-  const vy=-rnd(T.speed[0],T.speed[1]), along = view==='side' ? rnd(T.near[0],T.near[1]) : view==='base' ? CENTRE+rnd(-0.7,0.7) : rnd(-0.6,-0.1);
+  cam.x=V.cam[0]; cam.y=V.cam[1]; cam.yaw=V.yaw; cam.flip=!!seat.flip;
+  // along the judged line, measured from the judge's end: down the sideline, or across the court along the
+  // baseline/service line (scaled to fit inside the 8.23 m singles width)
+  const vy=-rnd(T.speed[0],T.speed[1]), along = view==='side' ? rnd(T.near[0],T.near[1]) : -0.7*rnd(T.near[0],T.near[1]);
   const ang=rnd(T.angle*0.4,T.angle)*(R()<0.5?-1:1), vx=ang*Math.abs(vy);
   const len=Math.hypot(vx,vy), ux=vx/len, uy=vy/len;
   // half-extent of the elongated mark across the judged line
@@ -371,17 +381,24 @@ function newBall(){
   const m = R()<0.22 ? rnd(0.06,0.22)*(R()<0.5?-1:1) : rnd(T.margin[0],T.margin[1])*(R()<0.5?-1:1);
   // the line's outer edge is V.line; out is x > V.line (sideline) or y < V.line (baseline, service line)
   const xL = V.axis==='x' ? V.line+m+ext : along, yL = V.axis==='x' ? along : V.line-m-ext;
-  setPitch(yL+V.aim);
+  setPitch(fwd(xL,yL)+V.aim);  // centre the view just past the landing spot on the line
   const a=0.21*Math.abs(vy), spawn=14;
   ball={ xL, yL, vx, vy, a, b:0.55*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, ext, seat:S.seat, view, flip:!!seat.flip, m, isIn:m<0, squash:1 };
   trail=[];
 }
+const SQUASH = 0.045;  // seconds the flattened ball shows at the bounce
 function stepBall(t){
   const b=ball;
-  b.x=b.xL+b.vx*t; b.y=b.yL+b.vy*t;
-  b.z = t<0 ? -b.a*t : Math.max(0, b.b*t-0.5*G*t*t);
-  b.squash = (t>=0 && t<0.045) ? 1.35 : 1;
-  b.vis = b.y > cam.y+0.4;
+  // The ball is held flat on its contact point for the squash, then flies on. Without the hold the squash frame shows it
+  // where it has moved to: from the end of a baseline or service line that is ~0.6 m a frame along the judged axis, and
+  // even on the sideline the ball drifts several cm sideways, enough to flip a close call.
+  const bounce = t>=0 && t<SQUASH;
+  if(bounce){ b.x=b.xL; b.y=b.yL; b.z=0; }
+  else { const tf = t>=SQUASH ? t-SQUASH : t;
+    b.x=b.xL+b.vx*tf; b.y=b.yL+b.vy*tf;
+    b.z = tf<0 ? -b.a*tf : Math.max(0, b.b*tf-0.5*G*tf*tf); }
+  b.squash = bounce ? 1.35 : 1;
+  b.vis = fwd(b.x,b.y)-fwd(cam.x,cam.y) > 0.4;
   trail.push({x:b.x,y:b.y,z:b.z}); if(trail.length>4) trail.shift();
 }
 
@@ -681,15 +698,17 @@ function sideCard(html){ // shows html; its #go button puts back exactly the car
 }
 // Top-down singles court, near baseline on the left; the judged line and the chair are highlighted.
 function seatDiagram(id){
-  const k=4.4, x0=28, wid=SINGLES_W*k, y0=50-wid/2, len=FAR_BASE*k, s=SEATS[id], V=VIEWS[s.view];
-  // world (x across, y along) -> diagram; the right singles sideline (x=0) is the bottom edge, near baseline on the left
-  const P=([x,y])=>[x0+y*k, y0+wid+x*k].map(v=>+v.toFixed(1));
+  const k=4.4, yB=132, s=SEATS[id], V=VIEWS[s.view];
+  // world (x across, y along) -> diagram, as seen from the near end: near baseline at the bottom, far baseline at the
+  // top, right singles sideline (x=0) on the right
+  const P=([x,y])=>[50+(x-CENTRE)*k, yB-y*k].map(v=>+v.toFixed(1));
+  const [rx,ry]=P([-SINGLES_W,FAR_BASE]), [rx2,ry2]=P([0,0]);
   const tf=([x,y])=>[s.flip||s.far ? -SINGLES_W-x : x, s.far ? FAR_BASE-y : y];  // mirror / 180-degree turn
   const line = V.axis==='x' ? [[LINE_W/2,0],[LINE_W/2,FAR_BASE]] : [[-SINGLES_W,V.line+LINE_W/2],[0,V.line+LINE_W/2]];
   const [a,b]=line.map(p=>P(tf(p))), [cx0,cy0]=P(tf(V.cam));
   const ln=(p,q)=>{ const [u,v]=P(p),[w,z]=P(q); return `<line x1="${u}" y1="${v}" x2="${w}" y2="${z}"/>`; };
-  return `<svg class="seatmap" viewBox="0 0 160 100" width="160" height="100" role="img" aria-label="Court diagram showing the ${s.name.toLowerCase()} judge's chair">
-    <rect x="${x0}" y="${+y0.toFixed(1)}" width="${+len.toFixed(1)}" height="${+wid.toFixed(1)}" fill="var(--paper)" stroke="var(--muted)" stroke-width="1"/>
+  return `<svg class="seatmap" viewBox="0 0 100 160" width="100" height="160" role="img" aria-label="Court diagram showing the ${s.name.toLowerCase()} judge's chair">
+    <rect x="${rx}" y="${ry}" width="${+(rx2-rx).toFixed(1)}" height="${+(ry2-ry).toFixed(1)}" fill="var(--paper)" stroke="var(--muted)" stroke-width="1"/>
     <g stroke="var(--muted)" stroke-width="1">${ln([-SINGLES_W,SVC1],[0,SVC1])}${ln([-SINGLES_W,SVC2],[0,SVC2])}${ln([CENTRE,SVC1],[CENTRE,SVC2])}</g>
     <g stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="2 2">${ln([1,NET_Y],[-SINGLES_W-1,NET_Y])}</g>
     <line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="var(--navy)" stroke-width="3" stroke-linecap="round"/>
