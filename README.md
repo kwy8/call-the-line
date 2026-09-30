@@ -26,7 +26,7 @@ Or just open `www/index.html` after `npm run build`.
 
 ## Deploy the web version
 
-Push to `main`. The workflow builds `www/` and deploys it to GitHub Pages. First time only: in the repo settings, under Pages, set the source to "GitHub Actions".
+Push to `main`. The workflow builds `www/` and deploys it to GitHub Pages at https://kwy8.github.io/call-the-line/. First time only: in the repo settings, under Pages, set the source to "GitHub Actions".
 
 ## iOS and Android
 
