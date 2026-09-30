@@ -281,10 +281,19 @@ function stepBall(t){
 }
 
 // ---------- Audio ----------
+function unlockAudio(){ // mobile browsers only start audio from a user gesture
+  try{
+    if(!S.sound) S.sound=new (window.AudioContext||window.webkitAudioContext)();
+    if(S.sound.state==='suspended') S.sound.resume();
+    const b=S.sound.createBuffer(1,1,22050), src=S.sound.createBufferSource(); src.buffer=b; src.connect(S.sound.destination); src.start(0);
+  }catch(e){}
+}
+['pointerdown','touchstart','keydown'].forEach(ev=>document.addEventListener(ev, unlockAudio, {passive:true}));
 function pock(){
   if(S.muted) return;
   try{
     if(!S.sound) S.sound=new (window.AudioContext||window.webkitAudioContext)();
+    if(S.sound.state==='suspended') S.sound.resume();
     const ac=S.sound, o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime;
     o.type='triangle'; o.frequency.setValueAtTime(420,t); o.frequency.exponentialRampToValueAtTime(140,t+0.08);
     g.gain.setValueAtTime(0.35,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.12);
