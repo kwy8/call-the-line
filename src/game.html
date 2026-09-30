@@ -48,6 +48,7 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:non
 .btn:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
 .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center}
 .hint{font-size:12px;color:var(--muted)}
+#shareMsg{white-space:pre-line}
 .rules{width:100%;text-align:left;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:10px 14px;display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:baseline}
 .rules b{font-family:var(--display);font-weight:800;font-size:22px;color:var(--navy);line-height:1}
 .rules span{font-size:15px}
@@ -56,6 +57,9 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:non
 .chip b{font-family:var(--display);font-size:15px;font-weight:800}
 .tag{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:var(--navy);color:var(--navy-ink)}
 .tag.bad{background:var(--bad)} .tag.good{background:var(--good)}
+.dots{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;max-width:300px}
+.dots i{width:11px;height:11px;border-radius:50%;background:var(--rule);display:inline-block}
+.dots i.y{background:var(--good)} .dots i.n{background:var(--bad)}
 .hawk{display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:center;text-align:left;width:100%;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:10px}
 .hawk canvas{width:170px;height:170px;aspect-ratio:1;border-radius:6px}
 .hawk .verdict{font-family:var(--display);font-weight:800;font-size:40px;line-height:1;text-transform:uppercase}
@@ -132,11 +136,13 @@ const TIERS = [
   {name:'Capital Masters 1000', short:'1000',   surf:'Blue hard',  calls:12, court:'#2E67A4', out:'#2B4F77', line:'#FFFFFF', stands:'#BEC7D1', speed:[32,40], near:[4.0,10.0], margin:[0.005,0.04], win:1.25, angle:0.11},
   {name:'The Grand Slam Final', short:'Slam',   surf:'Grass',      calls:12, court:'#4E8C3E', out:'#5D9C4A', line:'#FFFFFF', stands:'#C8CFC2', speed:[36,44], near:[4.5,11.0], margin:[0.002,0.03], win:1.05, angle:0.13},
 ];
+// Daily challenge: DAILY_N balls, BALLS_PER_TIER from each tournament in order, seeded by the local calendar date.
+const DAILY_N = 20, BALLS_PER_TIER = 4, DAILY_EPOCH = [2026,9,30]; // daily #1
 const BALL_R = 0.0335, LINE_W = 0.05, MARK_L = 0.11, MARK_W = 0.072, G = 9.81;
 const FAR_BASE = 23.77, NET_Y = 11.885, SVC1 = 5.485, SVC2 = 18.285, CENTRE = -4.115;
 
 // ---------- State ----------
-const S = { tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
+const S = { mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
 try{ S.best=+localStorage.getItem('ctl.best')||0; S.bestTier=+localStorage.getItem('ctl.tier')||0; S.muted=localStorage.getItem('ctl.mute')==='1'; }catch(e){}
 
 const $ = id=>document.getElementById(id);
@@ -231,20 +237,22 @@ function drawScene(t){
   cx.fillStyle='#16221B'; cx.fillRect(0,H-16,W,16);
   cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(0,H-16,W,2);
   cx.fillStyle='#D6E23A'; cx.font='800 10px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('LINE JUDGE · SIDELINE', 10, H-5);
-  cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(`CALL ${Math.min(S.call,T.calls)} OF ${T.calls}`, W-10, H-5);
+  const total = S.mode==='daily' ? DAILY_N : T.calls;
+  cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(`CALL ${Math.min(S.call,total)} OF ${total}`, W-10, H-5);
 }
 
 // ---------- Ball ----------
-const rnd=(a,b)=>a+Math.random()*(b-a);
+let R=Math.random; // swapped for a seeded generator during the daily challenge
+const rnd=(a,b)=>a+R()*(b-a);
 function newBall(){
   const T=TIERS[S.tier];
   const vy=-rnd(T.speed[0],T.speed[1]), yL=rnd(T.near[0],T.near[1]);
   setPitch(yL+1.5);
-  const ang=rnd(T.angle*0.4,T.angle)*(Math.random()<0.5?-1:1), vx=ang*Math.abs(vy);
+  const ang=rnd(T.angle*0.4,T.angle)*(R()<0.5?-1:1), vx=ang*Math.abs(vy);
   const len=Math.hypot(vx,vy), ux=vx/len, uy=vy/len;
   const extX=Math.sqrt(Math.pow(MARK_L/2*ux,2)+Math.pow(MARK_W/2*uy,2));
   // margin between the mark's inner edge and the line's outer edge: negative = in, positive = out
-  const m = Math.random()<0.22 ? rnd(0.06,0.22)*(Math.random()<0.5?-1:1) : rnd(T.margin[0],T.margin[1])*(Math.random()<0.5?-1:1);
+  const m = R()<0.22 ? rnd(0.06,0.22)*(R()<0.5?-1:1) : rnd(T.margin[0],T.margin[1])*(R()<0.5?-1:1);
   const a=0.21*Math.abs(vy), spawn=14;
   ball={ xL:LINE_W+m+extX, yL, vx, vy, a, b:0.55*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, extX, m, isIn:m<0, squash:1 };
   trail=[];
@@ -287,8 +295,10 @@ function loop(ts){
   raf=requestAnimationFrame(loop);
 }
 function startPoint(){
+  S.call++;
+  if(S.mode==='daily'){ S.tier=Math.min(TIERS.length-1, Math.floor((S.call-1)/BALLS_PER_TIER)); $('tSw').style.background=TIERS[S.tier].court; }
   const T=TIERS[S.tier];
-  S.call++; $('tProg').textContent=`${T.surf} · call ${S.call} of ${T.calls}`;
+  $('tProg').textContent = S.mode==='daily' ? `${T.surf} · call ${S.call} of ${DAILY_N}` : `${T.surf} · call ${S.call} of ${T.calls}`;
   newBall(); callWindow=T.win; resolved=false;
   $('timer').style.width='100%'; setButtons(false); hideOverlay(); toast('');
   S.phase='flight'; tStart=performance.now(); cancelAnimationFrame(raf); raf=requestAnimationFrame(loop);
@@ -304,9 +314,10 @@ function resolve(call, elapsed){
     const pts=Math.round((100+speed)*mult); S.score+=pts;
     toast(call, `+${pts}`);
   }else{
-    S.streak=0; S.over++;
+    S.streak=0; if(S.mode!=='daily') S.over++;
     toast(call===null?'No call':call, 'Overruled');
   }
+  if(S.mode==='daily') dailyRecord(right);
   hud();
   setTimeout(()=>showHawk(right,call,elapsed), 700);
 }
@@ -319,7 +330,7 @@ function showHawk(right, call, elapsed){
   const by = clearlyIn ? 'Well inside' : (b.isIn?`In by ${mm} mm`:`Out by ${mm} mm`);
   const yours = call===null ? `No call in ${callWindow} s` : `Your call: <b>${call.toUpperCase()}</b> in ${elapsed.toFixed(2)} s`;
   const last=S.call>=T.calls, sacked=S.over>=3;
-  const label = sacked?'Continue':last?(S.tier<TIERS.length-1?'Promotion':'Finish'):'Next call';
+  const label = S.mode==='daily' ? (S.call>=DAILY_N?'Results':'Next call') : sacked?'Continue':last?(S.tier<TIERS.length-1?'Promotion':'Finish'):'Next call';
   card(`
     <span class="tag ${right?'good':'bad'}">${right?'Good call':'Overruled'}</span>
     <div class="hawk">
@@ -334,7 +345,12 @@ function showHawk(right, call, elapsed){
   `);
   drawHawk($('hawk'));
   $('nx').focus();
-  $('nx').onclick=()=> sacked?gameOver():(last?endTournament():startPoint());
+  $('nx').onclick=nextStep;
+}
+function nextStep(){
+  if(S.mode==='daily'){ S.call>=DAILY_N ? dailyResults() : startPoint(); return; }
+  const T=TIERS[S.tier];
+  S.over>=3 ? gameOver() : (S.call>=T.calls ? endTournament() : startPoint());
 }
 function drawHawk(c){
   const g=c.getContext('2d'), T=TIERS[S.tier], b=ball, sc=1150, SZ=340;
@@ -437,15 +453,16 @@ function intro(){
     <h2>You think it's easy being a line judge?</h2>
     ${RULES}
     ${ladderHTML()}
-    <div class="row"><button class="btn" id="go">Take the chair</button></div>
+    <div class="row"><button class="btn" id="go">Take the chair</button><button class="btn ghost" id="daily">${dailyLabel()}</button></div>
     ${S.best?`<span class="hint">Best run: ${S.best.toLocaleString()} pts · ${TIERS[Math.min(S.bestTier,TIERS.length-1)].name}</span>`:''}
   `);
-  $('go').onclick=()=>{ S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); };
+  $('go').onclick=()=>{ S.mode='career'; S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); };
+  $('daily').onclick=()=> dailyLoad() ? dailyResults() : dailyIntro();
 }
 function rulesCard(){
   const prev=S.lastCard, inReview=S.phase==='review';
   card(`<h2>Rules</h2>${RULES}<div class="row"><button class="btn" id="go">Back</button></div>`);
-  $('go').onclick=()=>{ if(inReview){ card(prev); rewire(); } else if(S.tier===0&&S.call===0) intro(); else startTournament(); };
+  $('go').onclick=()=>{ if(inReview){ card(prev); rewire(); } else if(S.mode==='daily') dailyIntro(); else if(S.tier===0&&S.call===0) intro(); else startTournament(); };
 }
 function startTournament(){
   const T=TIERS[S.tier]; S.call=0; S.over=0; hud();
@@ -510,10 +527,81 @@ function win(){
 function wireEnd(){
   $('again').onclick=()=>{ S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); };
   $('share').onclick=()=>{
-    const txt=`${S.score.toLocaleString()} pts as a tennis line judge in Call the Line, reached ${TIERS[S.tier].name}. You think it's easy? ${location.href}`;
-    const ok=()=>{ $('shareMsg').textContent='Copied.'; };
-    try{ navigator.clipboard.writeText(txt).then(ok).catch(()=>{ $('shareMsg').textContent=txt; }); }catch(e){ $('shareMsg').textContent=txt; }
+    copyText(`${S.score.toLocaleString()} pts as a tennis line judge in Call the Line, reached ${TIERS[S.tier].name}. You think it's easy? ${location.href}`);
   };
+}
+// ---------- Daily challenge ----------
+// Same 20 balls for everyone on a given local calendar date; one attempt, stored the moment it starts.
+function dailyToday(){
+  const d=new Date(), key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const n=Math.round((Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())-Date.UTC(DAILY_EPOCH[0],DAILY_EPOCH[1]-1,DAILY_EPOCH[2]))/864e5)+1;
+  return { key, n };
+}
+function seeded(str){ // FNV-1a hash of the date into mulberry32
+  let h=2166136261; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619); }
+  let a=h>>>0;
+  return ()=>{ a=(a+0x6D2B79F5)>>>0; let t=a; t=Math.imul(t^(t>>>15),t|1); t^=t+Math.imul(t^(t>>>7),t|61); return ((t^(t>>>14))>>>0)/4294967296; };
+}
+function dailyLoad(){ // today's stored attempt, or null
+  try{ const r=JSON.parse(localStorage.getItem('ctl.daily')); return r && r.key===dailyToday().key ? r : null; }catch(e){ return null; }
+}
+function dailySave(){ try{ localStorage.setItem('ctl.daily', JSON.stringify(S.daily)); }catch(e){} }
+function dailyLabel(){ const r=dailyLoad(), n=dailyToday().n; return r ? `Daily #${n}: ${r.results.filter(Boolean).length}/${DAILY_N}` : `Daily #${n}`; }
+function dailyIntro(){
+  S.phase='idle'; S.mode='daily';
+  const { n }=dailyToday();
+  card(`
+    <span class="tag">Daily challenge</span>
+    <h2>Daily #${n}</h2>
+    <p>The same ${DAILY_N} balls for everyone today, from club clay to Slam grass. No overrule limit, and one attempt: it counts from the moment you start.</p>
+    <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
+  `);
+  $('go').onclick=dailyStart;
+  $('back').onclick=dailyExit;
+}
+function dailyStart(){
+  if(dailyLoad()){ dailyResults(); return; }
+  const { key, n }=dailyToday();
+  R=seeded('ctl-daily-'+key);
+  S.mode='daily'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0;
+  S.daily={ key, n, results:[], pts:0 };
+  dailySave();
+  $('tName').textContent=`Daily #${n}`; hud();
+  startPoint();
+}
+function dailyRecord(right){ S.daily.results.push(right); S.daily.pts=S.score; dailySave(); }
+function dailyResults(){
+  S.phase='end'; R=Math.random;
+  const r=dailyLoad()||S.daily, correct=r.results.filter(Boolean).length;
+  const acc=Math.round(100*correct/DAILY_N), played=r.results.length;
+  const dots=Array.from({length:DAILY_N},(_,i)=>`<i class="${i<played?(r.results[i]?'y':'n'):''}"></i>`).join('');
+  card(`
+    <span class="tag ${acc>=75?'good':''}">Daily #${r.n}</span>
+    <h2>${correct}/${DAILY_N} called right</h2>
+    <div class="chips"><span class="chip"><b>${acc}%</b> accuracy</span><span class="chip"><b>${(r.pts||0).toLocaleString()}</b> pts</span></div>
+    <div class="dots" aria-label="Call by call results">${dots}</div>
+    ${played<DAILY_N?`<span class="hint">Stopped after ${played} of ${DAILY_N}. The rest count as missed.</span>`:''}
+    <div class="row"><button class="btn" id="share">Copy result</button><button class="btn ghost" id="back">Back</button></div>
+    <span class="hint" id="shareMsg">Next daily in ${untilMidnight()}</span>
+  `);
+  $('share').onclick=()=>{
+    const grid=Array.from({length:DAILY_N},(_,i)=>r.results[i]?'🟩':'🟥').join('');
+    copyText(`Call the Line daily #${r.n}: ${correct}/${DAILY_N}\n${grid}\n${location.href.split('#')[0]}`);
+  };
+  $('back').onclick=dailyExit;
+}
+function dailyExit(){
+  S.mode='career'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; R=Math.random;
+  const T=TIERS[0]; $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
+  hud(); drawScene(performance.now()/1000); intro();
+}
+function untilMidnight(){
+  const d=new Date(), m=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1), mins=Math.ceil((m-d)/6e4);
+  return `${Math.floor(mins/60)}h ${mins%60}m`;
+}
+function copyText(txt){
+  const fail=()=>{ $('shareMsg').textContent=txt; };
+  try{ navigator.clipboard.writeText(txt).then(()=>{ $('shareMsg').textContent='Copied.'; }).catch(fail); }catch(e){ fail(); }
 }
 function saveBest(){
   if(S.score>S.best){ S.best=S.score; S.bestTier=S.tier; try{ localStorage.setItem('ctl.best',S.best); localStorage.setItem('ctl.tier',S.tier); }catch(e){} }
@@ -524,7 +612,7 @@ function hud(){
   [...$('strikes').children].forEach((i,k)=>i.classList.toggle('hit',k<S.over));
 }
 function card(html){ S.lastCard=html; $('card').innerHTML=html; $('overlay').hidden=false; }
-function rewire(){ const n=$('nx'); if(n){ const T=TIERS[S.tier], last=S.call>=T.calls, sacked=S.over>=3; n.onclick=()=> sacked?gameOver():(last?endTournament():startPoint()); if($('hawk')) drawHawk($('hawk')); } }
+function rewire(){ const n=$('nx'); if(n){ n.onclick=nextStep; if($('hawk')) drawHawk($('hawk')); } }
 function hideOverlay(){ $('overlay').hidden=true; }
 
 // ---------- Input ----------
