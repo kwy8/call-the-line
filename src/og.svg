@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <clipPath id="ball"><circle cx="960" cy="252" r="160"/></clipPath>
+  </defs>
+  <rect width="1200" height="630" fill="#1F3A5F"/>
+  <rect x="0" y="404" width="1200" height="48" fill="#FFFFFF"/>
+  <circle cx="960" cy="252" r="160" fill="#D6E23A"/>
+  <g clip-path="url(#ball)" fill="none" stroke="#A9B520" stroke-width="26" stroke-linecap="round">
+    <path d="M848 138 C 910 195, 910 309, 848 366"/>
+    <path d="M1072 138 C 1010 195, 1010 309, 1072 366"/>
+  </g>
+  <g fill="#FFFFFF" font-family="Oswald, 'Bebas Neue', 'Roboto Condensed', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif" font-weight="700" font-stretch="condensed">
+    <text x="80" y="352" font-size="156" textLength="640" lengthAdjust="spacingAndGlyphs">Call the Line</text>
+    <text x="80" y="540" font-size="56" fill="#D6E23A" textLength="920" lengthAdjust="spacingAndGlyphs">You think it's easy being a line judge?</text>
+  </g>
+</svg>

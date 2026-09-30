@@ -10,7 +10,9 @@ One HTML page, no framework, no backend. Canvas 2D with a pinhole-camera project
 
 ```
 src/game.html        the game (page body only; also what gets published as a Claude artifact)
-scripts/build.mjs    wraps it into a complete document
+src/icon.svg         app icon and favicon (1024x1024)
+src/og.svg           link-preview image (1200x630)
+scripts/build.mjs    wraps it into a complete document, adds icon and Open Graph tags, copies both SVGs
 www/index.html       built output, deployed to GitHub Pages and packaged by Capacitor
 capacitor.config.json
 .github/workflows/pages.yml
