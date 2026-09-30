@@ -82,6 +82,7 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:pan
 .chip{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--paper);border:1px solid var(--rule);font-variant-numeric:tabular-nums}
 .chip.badge{color:var(--muted);opacity:.55}
 .chip.badge.got{color:var(--good);border-color:var(--good);opacity:1;font-weight:600}
+.seatmap{display:block;width:160px;height:100px;margin-bottom:-4px}
 .subhead{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:4px}
 .badge-toast{position:absolute;left:0;right:0;top:46px;display:flex;justify-content:center;pointer-events:none;z-index:2}
 .badge-toast span{background:var(--ink);color:var(--ball);border-radius:999px;padding:6px 14px;font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 2px 6px rgba(22,34,27,.25);max-width:calc(100% - 24px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -185,14 +186,13 @@ const TIERS = [
 const DAILY_N = 20, BALLS_PER_TIER = 4, DAILY_EPOCH = [2026,9,30]; // daily #1
 const BALL_R = 0.0335, LINE_W = 0.05, MARK_L = 0.11, MARK_W = 0.072, G = 9.81;
 const FAR_BASE = 23.77, NET_Y = 11.885, SVC1 = 5.485, SVC2 = 18.285, CENTRE = -4.115, SINGLES_W = 8.23;
-// Seats alternate within a tournament: odd calls on the sideline (in/out across x), even calls centred behind the
-// near baseline (long/in along y). Only the camera, the judged line and the margin axis differ. aim = metres past the
+// One seat per tournament (random) or per daily (from the date): the sideline (in/out across x), or centred behind
+// the near baseline (long/in along y). Only the camera, the judged line and the margin axis differ. aim = metres past the
 // landing spot the camera centres on.
 const SEATS = { side:{ name:'Sideline', x:LINE_W/2, y:-2.6, aim:1.5 }, base:{ name:'Baseline', x:CENTRE, y:-4.2, aim:2.7 } };
-const seatFor = n => n>0 && n%2===0 ? 'base' : 'side';
 
 // ---------- State ----------
-const S = { run:0, mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
+const S = { run:0, seat:'side', mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
 // ---------- Stats and badges (one localStorage key) ----------
 const ST = { calls:0, correct:0, rtSum:0, rtN:0, bestStreak:0, closest:null, tourneys:0, perfect:0, champion:0, dailies:0, badges:[] };
 try{ Object.assign(ST, JSON.parse(localStorage.getItem('ctl.stats'))||{}); if(!Array.isArray(ST.badges)) ST.badges=[]; }catch(e){}
@@ -339,7 +339,7 @@ function drawBaseCourt(T, hz){ // view from behind the near baseline: both singl
 let R=Math.random; // swapped for a seeded generator during the daily challenge
 const rnd=(a,b)=>a+R()*(b-a);
 function newBall(){
-  const T=TIERS[S.tier], seat=seatFor(S.call), St=SEATS[seat];
+  const T=TIERS[S.tier], seat=S.seat, St=SEATS[seat];
   cam.x=St.x; cam.y=St.y;
   // along the judged line: distance down the sideline, or across the baseline within the judge's view
   const vy=-rnd(T.speed[0],T.speed[1]), along = seat==='side' ? rnd(T.near[0],T.near[1]) : CENTRE+rnd(-0.7,0.7);
@@ -434,7 +434,7 @@ function startPoint(){
   S.call++;
   if(S.mode==='daily'){ S.tier=Math.min(TIERS.length-1, Math.floor((S.call-1)/BALLS_PER_TIER)); $('tSw').style.background=TIERS[S.tier].court; }
   const T=TIERS[S.tier];
-  $('tProg').textContent = `${T.surf} · call ${S.call} of ${S.mode==='daily'?DAILY_N:T.calls} · ${SEATS[seatFor(S.call)].name}`;
+  $('tProg').textContent = `${T.surf} · call ${S.call} of ${S.mode==='daily'?DAILY_N:T.calls} · ${SEATS[S.seat].name}`;
   newBall(); callWindow=T.win; resolved=false;
   $('timer').style.width='100%'; setButtons(false); hideOverlay(); toast('');
   clearTimeout(quipTimer); $('quip').hidden=true;
@@ -655,6 +655,21 @@ function sideCard(html){ // shows html; its #go button puts back exactly the car
   card(html);
   $('go').onclick=back;
 }
+// Top-down singles court, near baseline on the left; the judged line and the chair are highlighted.
+function seatDiagram(seat){
+  const k=5, x0=30, y0=50-SINGLES_W*k/2, len=FAR_BASE*k, wid=SINGLES_W*k, sv=(NET_Y-SVC1)*k, net=x0+NET_Y*k;
+  const judged = seat==='side' ? `<line x1="${x0}" y1="${y0+wid}" x2="${x0+len}" y2="${y0+wid}"/>` : `<line x1="${x0}" y1="${y0}" x2="${x0}" y2="${y0+wid}"/>`;
+  const chair = seat==='side' ? [x0+SEATS.side.y*k, y0+wid] : [x0+SEATS.base.y*k, 50];
+  return `<svg class="seatmap" viewBox="0 0 160 100" width="160" height="100" role="img" aria-label="Court diagram showing the ${SEATS[seat].name.toLowerCase()} judge's chair">
+    <rect x="${x0}" y="${y0}" width="${len}" height="${wid}" fill="var(--paper)" stroke="var(--muted)" stroke-width="1"/>
+    <g stroke="var(--muted)" stroke-width="1"><line x1="${net-sv}" y1="${y0}" x2="${net-sv}" y2="${y0+wid}"/><line x1="${net+sv}" y1="${y0}" x2="${net+sv}" y2="${y0+wid}"/><line x1="${net-sv}" y1="50" x2="${net+sv}" y2="50"/></g>
+    <line x1="${net}" y1="${y0-5}" x2="${net}" y2="${y0+wid+5}" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="2 2"/>
+    <g stroke="var(--navy)" stroke-width="3" stroke-linecap="round">${judged}</g>
+    <circle cx="${chair[0]}" cy="${chair[1]}" r="7" fill="var(--ball)" opacity=".5"/><circle cx="${chair[0]}" cy="${chair[1]}" r="4" fill="var(--navy)"/>
+  </svg><span class="hint">Your seat: ${SEATS[seat].name.toLowerCase()}</span>`;
+}
+function previewSeat(seat){ S.seat=seat; S.call=0; newBall(); ball.vis=false; drawScene(performance.now()/1000); }
+function dailySeat(key){ return seeded('ctl-daily-seat-'+key)()<0.5 ? 'side' : 'base'; }  // own stream: the ball sequence is untouched
 function rulesCard(){ sideCard(`<h2>Rules</h2>${RULES}<div class="row"><button class="btn" id="go">Back</button></div>`); }
 function statsCard(){
   const pct=ST.calls?Math.round(100*ST.correct/ST.calls):0, chip=(v,k)=>`<span class="chip"><b>${v}</b> ${k}</span>`;
@@ -681,17 +696,18 @@ function nextBadge(){
   setTimeout(nextBadge, 2400);
 }
 function startTournament(){
-  const T=TIERS[S.tier]; S.call=0; S.over=0; hud();
+  const T=TIERS[S.tier], seat=Math.random()<0.5?'side':'base'; S.call=0; S.over=0; hud();
   $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
   S.phase='idle';
   card(`
     <span class="tag">Tournament ${S.tier+1} of ${TIERS.length}</span>
     <h2>${T.name}</h2>
     <div class="chips"><span class="chip"><b>${T.surf}</b></span><span class="chip"><b>${T.calls}</b> calls</span><span class="chip">up to <b>${Math.round(T.speed[1]*3.6)}</b> km/h</span><span class="chip"><b>${T.win}</b> s to call</span></div>
+    ${seatDiagram(seat)}
     <div class="row"><button class="btn" id="go">Play</button></div>
   `);
   $('go').onclick=startPoint;
-  drawScene(performance.now()/1000);
+  previewSeat(seat);
 }
 function endTournament(){
   S.phase='idle';
@@ -766,11 +782,13 @@ function dailyLoad(){ // today's stored attempt, or null
 function dailySave(){ try{ localStorage.setItem('ctl.daily', JSON.stringify(S.daily)); }catch(e){} }
 function dailyIntro(){
   S.phase='idle'; S.mode='daily';
-  const { n }=dailyToday();
+  const { key, n }=dailyToday(), seat=dailySeat(key);
+  S.tier=0; previewSeat(seat);
   card(`
     <span class="tag">Daily challenge</span>
     <h2>Daily #${n}</h2>
     <p>Same ${DAILY_N} balls for everyone today. One attempt.</p>
+    ${seatDiagram(seat)}
     <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
   `);
   $('go').onclick=dailyStart;
@@ -780,7 +798,7 @@ function dailyStart(){
   if(dailyLoad()){ dailyResults(); return; }
   const { key, n }=dailyToday();
   R=seeded('ctl-daily-'+key);
-  S.mode='daily'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0;
+  S.mode='daily'; S.seat=dailySeat(key); S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0;
   S.daily={ key, n, results:[], pts:0 };
   dailySave(); updateStats(st=>{ st.dailies++; });
   $('tName').textContent=`Daily #${n}`; hud();
@@ -813,7 +831,7 @@ function dailyExit(){ goHome(); }
 function goHome(){
   S.run++; cancelAnimationFrame(raf); clearTimeout(eagleTimer); resolved=true;
   if(S.mode==='career' && S.phase!=='end') saveBest();
-  S.mode='career'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; S.rescued=false; R=Math.random;
+  S.mode='career'; S.seat='side'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; S.rescued=false; R=Math.random;
   toast(''); $('quip').hidden=true; $('timer').style.width='0%'; setButtons(false);
   const T=TIERS[0]; $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
   newBall(); ball.vis=false;
