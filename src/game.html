@@ -104,6 +104,7 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:non
 footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 footer button{appearance:none;border:0;background:none;color:var(--navy);font:inherit;text-decoration:underline;cursor:pointer;padding:0}
 footer button[disabled]{opacity:.4;text-decoration:none;cursor:default}
+footer button.confirm{color:var(--bad);font-weight:600}
 .toast{position:absolute;left:0;right:0;top:44%;text-align:center;font-family:var(--display);font-weight:800;font-size:44px;line-height:1;text-transform:uppercase;letter-spacing:.06em;pointer-events:none;color:#fff;text-shadow:0 2px 0 rgba(0,0,0,.35),0 0 24px rgba(0,0,0,.35)}
 .toast small{display:block;font-size:20px;letter-spacing:.1em;margin-top:6px}
 @media (max-width:480px){
@@ -157,7 +158,7 @@ footer button[disabled]{opacity:.4;text-decoration:none;cursor:default}
   </div>
 
   <footer>
-    <span><button id="rulesBtn" type="button">Rules</button> · <button id="mute" type="button">Sound: on</button></span>
+    <span><span id="homeWrap" hidden><button id="home" type="button">Home</button> · </span><button id="rulesBtn" type="button">Rules</button> · <button id="mute" type="button">Sound: on</button></span>
     <span>Ball 6.7 cm · line 5 cm · your eyes 1.1 m off the ground</span>
   </footer>
 </div>
@@ -184,7 +185,7 @@ const SEATS = { side:{ name:'Sideline', x:LINE_W/2, y:-2.6, aim:1.5 }, base:{ na
 const seatFor = n => n>0 && n%2===0 ? 'base' : 'side';
 
 // ---------- State ----------
-const S = { mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
+const S = { run:0, mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
 try{ S.best=+localStorage.getItem('ctl.best')||0; S.bestTier=+localStorage.getItem('ctl.tier')||0; S.muted=localStorage.getItem('ctl.mute')==='1'; }catch(e){}
 
 const $ = id=>document.getElementById(id);
@@ -395,7 +396,7 @@ function chime(){ // two soft rising notes
 }
 
 // ---------- Loop ----------
-let raf=0, tStart=0, callWindow=1, callT=0, resolved=false;
+let raf=0, tStart=0, callWindow=1, callT=0, resolved=false, hawkTimer=0;
 function loop(ts){
   const t=(ts-tStart)/1000+ball.t0;
   if(S.phase==='flight'||S.phase==='window'){
@@ -437,7 +438,7 @@ function resolve(call, elapsed){
   if(!right){ murmur(); quip('Player', pickQuote(), false); }
   else if(Math.abs(ball.m)<=0.005){ chime(); quip('Umpire', 'Good eyes.', true); }
   hud();
-  setTimeout(()=>showHawk(right,call,elapsed), 700);
+  hawkTimer=setTimeout(()=>showHawk(right,call,elapsed), 700);
 }
 const QUOTES = ['You cannot be serious.','Are you watching the same match?','Were you even looking?','Get your eyes checked.',
   'Is that chair comfortable?','Wake up, line!','How much are they paying you?','Unbelievable. Just unbelievable.'];
@@ -575,7 +576,7 @@ const Ads = (function(){
       const prev=$('card').innerHTML;
       $('card').innerHTML=`<span class="tag">${label}</span><h2>Your ad here</h2><p>Closes in <b id="adT">${secs}</b> s</p>`;
       $('overlay').hidden=false;
-      let n=secs; const iv=setInterval(()=>{ n--; const t=$('adT'); if(t) t.textContent=n; if(n<=0){ clearInterval(iv); $('card').innerHTML=prev; res(true); } },1000);
+      let n=secs; const iv=setInterval(()=>{ n--; const t=$('adT'); if(t) t.textContent=n; if(n<=0){ clearInterval(iv); if($('adT')) $('card').innerHTML=prev; res(true); } },1000);
     });
   }
   return { available, rewarded, interstitial, provider };
@@ -617,6 +618,7 @@ function intro(){
     ${S.best?`<span class="hint">Best: ${S.best.toLocaleString()} pts · ${TIERS[Math.min(S.bestTier,TIERS.length-1)].name}</span>`:''}
   `);
   $('rulesLink').onclick=rulesCard;
+  $('homeWrap').hidden=true;
   $('go').onclick=()=>{ S.mode='career'; S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); };
   $('daily').onclick=()=> dailyLoad() ? dailyResults() : dailyIntro();
 }
@@ -650,7 +652,7 @@ function endTournament(){
     ${ladderHTML()}
     <div class="row"><button class="btn" id="go">Next: ${TIERS[S.tier].name}</button></div>
   `);
-  $('go').onclick=async()=>{ $('go').disabled=true; await Ads.interstitial(); startTournament(); };
+  $('go').onclick=async()=>{ const run=S.run; $('go').disabled=true; await Ads.interstitial(); if(run===S.run) startTournament(); };
 }
 function gameOver(){
   S.phase='end';
@@ -665,7 +667,8 @@ function gameOver(){
   `);
   if(canRescue) $('rescue').onclick=async()=>{
     $('rescue').disabled=true;
-    const ok=await Ads.rewarded();
+    const run=S.run, ok=await Ads.rewarded();
+    if(run!==S.run) return;
     if(!ok){ $('rescue').disabled=false; $('shareMsg').textContent='No ad available right now.'; return; }
     S.rescued=true; S.over=2; hud();
     const T=TIERS[S.tier];
@@ -750,9 +753,16 @@ function dailyResults(){
   };
   $('back').onclick=dailyExit;
 }
-function dailyExit(){
-  S.mode='career'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; R=Math.random;
+function dailyExit(){ goHome(); }
+// Back to the start screen from anywhere: stop the ball, drop any pending review, reset the run.
+// A career run's score still counts towards the best; a daily attempt stays used.
+function goHome(){
+  S.run++; cancelAnimationFrame(raf); clearTimeout(hawkTimer); resolved=true;
+  if(S.mode==='career' && S.phase!=='end') saveBest();
+  S.mode='career'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; S.rescued=false; R=Math.random;
+  toast(''); $('quip').hidden=true; $('timer').style.width='0%'; setButtons(false);
   const T=TIERS[0]; $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
+  newBall(); ball.vis=false;
   hud(); drawScene(performance.now()/1000); intro();
 }
 function untilMidnight(){
@@ -771,7 +781,7 @@ function hud(){
   $('score').textContent=S.score.toLocaleString(); $('streak').textContent=S.streak; $('best').textContent=S.best.toLocaleString();
   [...$('strikes').children].forEach((i,k)=>i.classList.toggle('hit',k<S.over));
 }
-function card(html){ S.lastCard=html; $('card').innerHTML=html; $('overlay').hidden=false; }
+function card(html){ S.lastCard=html; $('card').innerHTML=html; $('overlay').hidden=false; $('homeWrap').hidden=false; }
 function rewire(){ const n=$('nx'); if(n){ n.onclick=nextStep; if($('hawk')) drawHawk($('hawk')); } }
 function hideOverlay(){ $('overlay').hidden=true; }
 
@@ -785,6 +795,14 @@ document.addEventListener('keydown', e=>{
   else if(e.key==='ArrowRight'||k==='o') makeCall('out');
   else if((e.key===' '||e.key==='Enter') && S.phase==='review'){ const n=$('nx'); if(n){ e.preventDefault(); n.click(); } }
 });
+let homeArm=0;
+$('home').onclick=()=>{
+  const midRun = S.phase==='flight'||S.phase==='window'||S.phase==='review'||(S.phase==='idle'&&(S.score>0||S.tier>0));
+  const el=$('home');
+  if(midRun && !homeArm){ el.textContent='Quit run? Tap again'; el.classList.add('confirm'); homeArm=setTimeout(disarmHome,3000); return; }
+  disarmHome(); goHome();
+};
+function disarmHome(){ clearTimeout(homeArm); homeArm=0; $('home').textContent='Home'; $('home').classList.remove('confirm'); }
 $('rulesBtn').onclick=()=>{ if(S.phase==='idle'||S.phase==='review') rulesCard(); };
 $('mute').onclick=()=>{ S.muted=!S.muted; $('mute').textContent='Sound: '+(S.muted?'off':'on'); try{localStorage.setItem('ctl.mute',S.muted?'1':'0')}catch(e){} };
 $('mute').textContent='Sound: '+(S.muted?'off':'on');
