@@ -37,14 +37,14 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:non
 .call.in{background:var(--good)} .call.out{background:var(--bad)}
 .call small{display:block;font-family:var(--body);font-weight:600;font-size:11px;letter-spacing:.1em;opacity:.8;margin-top:6px}
 .call[disabled]{opacity:.4;cursor:default;box-shadow:none}
-@media (hover:none){ .call small{display:none} .call{padding:22px 10px} }
+@media (hover:none){ .call small,.hint.kbd{display:none} .call{padding:22px 10px} footer button{padding:12px 4px;margin:-12px -4px} }
 .overlay{position:absolute;inset:0;display:flex;align-items:safe center;justify-content:center;padding:12px;background:rgba(243,245,240,.96);text-align:center;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .card{max-width:420px;width:100%;display:flex;flex-direction:column;gap:10px;align-items:center;margin:auto 0}
 .card h2{font-family:var(--display);font-weight:800;font-size:42px;line-height:.95;margin:0;text-transform:uppercase;text-wrap:balance}
 .card h2.bad{color:var(--bad)} .card h2.good{color:var(--good)}
 .card p{margin:0;color:var(--muted);max-width:36ch;text-wrap:pretty}
 .btn{appearance:none;border:0;border-radius:6px;background:var(--navy);color:var(--navy-ink);font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:.05em;text-transform:uppercase;padding:11px 26px;cursor:pointer}
-.btn.ghost{background:transparent;color:var(--navy);border:2px solid var(--navy)}
+.btn.ghost{background:transparent;color:var(--navy);border:2px solid var(--navy);padding-block:9px}
 .btn:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
 .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center}
 .hint{font-size:12px;color:var(--muted)}
@@ -86,7 +86,8 @@ footer button[disabled]{opacity:.4;text-decoration:none;cursor:default}
   .card h2{font-size:30px}
   .rules{padding:8px 10px;gap:4px 10px} .rules b{font-size:18px} .rules span{font-size:13px;line-height:1.3}
   .chips{gap:4px} .chip{font-size:11px;padding:3px 8px}
-  .btn{font-size:20px;padding:10px 22px}
+  .btn{font-size:20px;padding:10px 22px} .btn.ghost{padding-block:8px}
+  #rescue{font-size:17px;padding:12px 14px}
   .tag{font-size:10px}
   .brand{font-size:26px}
   .hud{gap:12px} .hud .v{font-size:22px}
@@ -286,9 +287,11 @@ function unlockAudio(){ // mobile browsers only start audio from a user gesture
     if(!S.sound) S.sound=new (window.AudioContext||window.webkitAudioContext)();
     if(S.sound.state==='suspended') S.sound.resume();
     const b=S.sound.createBuffer(1,1,22050), src=S.sound.createBufferSource(); src.buffer=b; src.connect(S.sound.destination); src.start(0);
+    if(S.sound.state==='running') UNLOCK_EVENTS.forEach(ev=>document.removeEventListener(ev, unlockAudio));
   }catch(e){}
 }
-['pointerdown','touchstart','keydown'].forEach(ev=>document.addEventListener(ev, unlockAudio, {passive:true}));
+const UNLOCK_EVENTS=['pointerdown','pointerup','touchend','click','keydown'];
+UNLOCK_EVENTS.forEach(ev=>document.addEventListener(ev, unlockAudio, {passive:true}));
 function pock(){
   if(S.muted) return;
   try{
@@ -364,7 +367,7 @@ function showHawk(right, call, elapsed){
         <div class="yours">${yours}<br>${b.yL.toFixed(1)} m away · ${Math.round(Math.abs(b.vy)*3.6)} km/h</div>
       </div>
     </div>
-    <div class="row"><button class="btn" id="nx">${label}</button><span class="hint">Space</span></div>
+    <div class="row"><button class="btn" id="nx">${label}</button><span class="hint kbd">Space</span></div>
   `);
   drawHawk($('hawk'));
   $('nx').focus();
