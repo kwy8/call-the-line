@@ -6,10 +6,25 @@
 //   - balls in the doubles alley are out in a singles match and in in a doubles match (and both cases occur)
 //   - a baseline or service-line ball lands inside the judged length without touching a sideline
 //   - the landing spot and the judged line are on screen
-// and that the daily challenge gives identical balls, seat and match type for the same date. Exits 1 on any failure.
+// and that the daily challenge gives identical balls, seat and match type for the same date, and still produces the
+// frozen DAILY_FIXTURE for 2026-10-01 below. Exits 1 on any failure.
 import { readFileSync } from 'node:fs';
 
 const BALLS_PER_SEAT_AND_TIER = 300;
+
+// Frozen daily fixture: seat, match type and first 5 balls of the daily for 2026-10-01, rounded to 6 decimals (metres,
+// m/s). Everyone playing a given date must get the same balls, so these must only change on purpose. If a change to
+// the ball code, TIERS, seats or the daily seeding is deliberate, regenerate these values and say so in the commit.
+const DAILY_FIXTURE = {
+  date: '2026-10-01', seat: 'service-line-right', match: 'singles',
+  balls: [
+    { tier: 0, xL: -3.437906, yL: 5.3146,   vx: -0.712409, vy: -22.846332, m: 0.115415,  isIn: false },
+    { tier: 0, xL: -3.759859, yL: 5.401952, vx: 1.095425,  vy: -24.163987, m: 0.02808,   isIn: false },
+    { tier: 0, xL: -2.927836, yL: 5.363874, vx: 0.974896,  vy: -24.172301, m: 0.066152,  isIn: false },
+    { tier: 0, xL: -2.601442, yL: 5.595525, vx: -0.757378, vy: -21.737079, m: -0.165506, isIn: true },
+    { tier: 1, xL: -4.168204, yL: 5.256869, vx: 1.710135,  vy: -25.83753,  m: 0.1732,    isIn: false },
+  ],
+};
 const html = readFileSync(new URL('../src/game.html', import.meta.url), 'utf8');
 const match = html.match(/<script>([\s\S]*)<\/script>/);
 if (!match) fail('no <script> block in src/game.html');
@@ -112,9 +127,30 @@ for (const day of dates) {
 }
 check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1), 'daily: consecutive dates give the same balls');
 
+// ---------- frozen daily fixture ----------
+{
+  const d = boot(`${DAILY_FIXTURE.date}T12:00:00`, 5), diffs = [];
+  d.dailyStart();
+  if (d.ball.seat !== DAILY_FIXTURE.seat) diffs.push(`seat ${d.ball.seat}, expected ${DAILY_FIXTURE.seat}`);
+  if (d.ball.match !== DAILY_FIXTURE.match) diffs.push(`match type ${d.ball.match}, expected ${DAILY_FIXTURE.match}`);
+  DAILY_FIXTURE.balls.forEach((want, i) => {
+    const b = d.ball, got = { tier: d.S.tier, xL: b.xL, yL: b.yL, vx: b.vx, vy: b.vy, m: b.m, isIn: b.isIn };
+    for (const k of Object.keys(want)) {
+      const same = typeof want[k] === 'number' ? Math.abs(got[k] - want[k]) <= 1e-6 : got[k] === want[k];
+      if (!same) diffs.push(`ball ${i + 1} ${k} = ${typeof got[k] === 'number' ? +got[k].toFixed(6) : got[k]}, expected ${want[k]}`);
+    }
+    d.S.phase = 'window'; d.resolve('in', 0.5); d.startPoint();
+  });
+  if (diffs.length) {
+    failures.push(`the daily generation changed: the ${DAILY_FIXTURE.date} daily no longer matches DAILY_FIXTURE in scripts/check.mjs. `
+      + `Every player's daily balls for a date would change, so this must be deliberate; if it is, regenerate the fixture and say so in the commit.`);
+    for (const x of diffs.slice(0, 10)) failures.push('  ' + x);
+  }
+}
+
 if (failures.length) {
   console.error(`check failed: ${failures.length}${failures.length === 50 ? '+' : ''} problem(s)`);
   for (const f of failures) console.error('  ' + f);
   process.exit(1);
 }
-console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seats, 5 tiers, singles and doubles (alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); daily identical on ${dates.length} dates`);
+console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seats, 5 tiers, singles and doubles (alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily matches the frozen fixture`);
