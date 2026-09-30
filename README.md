@@ -24,6 +24,14 @@ npm run dev          # builds www/ and serves it on http://localhost:3000
 
 Or just open `www/index.html` after `npm run build`.
 
+## Check
+
+```
+npm run check        # geometry and daily-seed check, runs in a second, no browser needed
+```
+
+`scripts/check.mjs` loads the script from `src/game.html` in Node with a stubbed page and canvas and a seeded `Math.random`, then generates 300 balls for every seat and tournament (9,000 in all) with the game's own `newBall()`. It fails if in/out doesn't match the sign of the margin, if the bounce mark traced against the judged line disagrees with the call or the reported margin, if a landing spot or the judged line is off screen, or if the daily challenge gives different balls or a different seat for the same date. Run it after changing seats, cameras, `TIERS` or the ball code. It needs the game script to stay one `(function(){ ... })();` block, since that is where it hooks in.
+
 ## Deploy the web version
 
 Push to `main`. The workflow builds `www/` and deploys it to GitHub Pages at https://kwy8.github.io/call-the-line/. First time only: in the repo settings, under Pages, set the source to "GitHub Actions".
