@@ -30,7 +30,12 @@ header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;
 canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:none}
 .timer{height:6px;background:var(--rule)}
 .timer > i{display:block;height:100%;width:0%;background:var(--good)}
-.calls{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.calls{display:grid;grid-template-columns:1fr 1fr;gap:10px;position:relative}
+.quip{position:absolute;left:0;right:0;bottom:calc(100% + 8px);display:flex;justify-content:center;pointer-events:none;transition:opacity .15s}
+.quip[hidden]{display:flex!important;opacity:0}
+.quip span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--paper);border:1px solid var(--rule);border-radius:999px;padding:5px 14px;font-size:15px;font-weight:600;box-shadow:0 1px 3px rgba(22,34,27,.15)}
+.quip b{font-family:var(--display);font-weight:800;font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-right:6px;color:var(--bad)}
+.quip.ump b{color:var(--good)}
 .call{appearance:none;border:0;border-radius:10px;padding:20px 10px 16px;font-family:var(--display);font-weight:800;font-size:40px;line-height:1;letter-spacing:.04em;text-transform:uppercase;color:#fff;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;box-shadow:inset 0 -4px 0 rgba(0,0,0,.18);transition:transform .06s}
 .call:active{transform:translateY(2px);box-shadow:inset 0 -2px 0 rgba(0,0,0,.18)}
 .call:focus-visible{outline:3px solid var(--navy);outline-offset:3px}
@@ -145,6 +150,7 @@ footer button[disabled]{opacity:.4;text-decoration:none;cursor:default}
   </div>
 
   <div class="calls">
+    <div class="quip" id="quip" hidden aria-live="polite"></div>
     <button class="call in" id="btnIn" disabled>In<small>← / I</small></button>
     <button class="call out" id="btnOut" disabled>Out<small>→ / O</small></button>
   </div>
@@ -324,6 +330,33 @@ function pock(){
     o.connect(g); g.connect(ac.destination); o.start(); o.stop(t+0.13);
   }catch(e){}
 }
+// Reactions: the crowd murmurs after an overrule, the umpire chimes after a close good call
+function murmur(){ // ~1 s of low filtered noise
+  if(S.muted) return;
+  try{
+    if(!S.sound) S.sound=new (window.AudioContext||window.webkitAudioContext)();
+    if(S.sound.state==='suspended') S.sound.resume();
+    const ac=S.sound, t=ac.currentTime, len=Math.floor(ac.sampleRate*1.1), buf=ac.createBuffer(1,len,ac.sampleRate), ch=buf.getChannelData(0);
+    for(let i=0;i<len;i++) ch[i]=Math.random()*2-1;
+    const src=ac.createBufferSource(), f=ac.createBiquadFilter(), g=ac.createGain();
+    src.buffer=buf; f.type='bandpass'; f.frequency.value=320; f.Q.value=0.8;
+    g.gain.setValueAtTime(0.001,t); g.gain.exponentialRampToValueAtTime(0.28,t+0.25); g.gain.exponentialRampToValueAtTime(0.001,t+1.05);
+    src.connect(f); f.connect(g); g.connect(ac.destination); src.start(t); src.stop(t+1.1);
+  }catch(e){}
+}
+function chime(){ // two soft rising notes
+  if(S.muted) return;
+  try{
+    if(!S.sound) S.sound=new (window.AudioContext||window.webkitAudioContext)();
+    if(S.sound.state==='suspended') S.sound.resume();
+    const ac=S.sound, t=ac.currentTime;
+    [[660,0],[990,0.09]].forEach(([hz,dt])=>{
+      const o=ac.createOscillator(), g=ac.createGain(); o.type='sine'; o.frequency.value=hz;
+      g.gain.setValueAtTime(0.001,t+dt); g.gain.exponentialRampToValueAtTime(0.18,t+dt+0.02); g.gain.exponentialRampToValueAtTime(0.001,t+dt+0.22);
+      o.connect(g); g.connect(ac.destination); o.start(t+dt); o.stop(t+dt+0.24);
+    });
+  }catch(e){}
+}
 
 // ---------- Loop ----------
 let raf=0, tStart=0, callWindow=1, callT=0, resolved=false;
@@ -365,8 +398,18 @@ function resolve(call, elapsed){
     toast(call===null?'No call':call, 'Overruled');
   }
   if(S.mode==='daily') dailyRecord(right);
+  if(!right){ murmur(); quip('Player', pickQuote(), false); }
+  else if(Math.abs(ball.m)<=0.005){ chime(); quip('Umpire', 'Good eyes.', true); }
   hud();
   setTimeout(()=>showHawk(right,call,elapsed), 700);
+}
+const QUOTES = ['You cannot be serious.','Are you watching the same match?','Were you even looking?','Get your eyes checked.',
+  'Is that chair comfortable?','Wake up, line!','How much are they paying you?','Unbelievable. Just unbelievable.'];
+let lastQuote=-1, quipTimer=0;
+function pickQuote(){ let i; do{ i=Math.floor(Math.random()*QUOTES.length); }while(i===lastQuote); lastQuote=i; return QUOTES[i]; }
+function quip(who, line, ump){
+  const el=$('quip'); el.innerHTML=`<span><b>${who}</b>“${line}”</span>`; el.classList.toggle('ump',ump); el.hidden=false;
+  clearTimeout(quipTimer); quipTimer=setTimeout(()=>{ el.hidden=true; },1500);
 }
 function toast(big, small){ const el=$('toast'); el.innerHTML = big ? `${big}<small>${small||''}</small>` : ''; el.hidden=!big; }
 
