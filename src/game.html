@@ -80,6 +80,11 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:pan
 .rules span{font-size:15px}
 .chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
 .chip{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--paper);border:1px solid var(--rule);font-variant-numeric:tabular-nums}
+.chip.badge{color:var(--muted);opacity:.55}
+.chip.badge.got{color:var(--good);border-color:var(--good);opacity:1;font-weight:600}
+.subhead{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+.badge-toast{position:absolute;left:0;right:0;top:46px;display:flex;justify-content:center;pointer-events:none;z-index:2}
+.badge-toast span{background:var(--ink);color:var(--ball);border-radius:999px;padding:6px 14px;font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 2px 6px rgba(22,34,27,.25);max-width:calc(100% - 24px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chip b{font-family:var(--display);font-size:15px;font-weight:800}
 .tag{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:var(--navy);color:var(--navy-ink)}
 .tag.bad{background:var(--bad)} .tag.good{background:var(--good)}
@@ -150,6 +155,7 @@ footer button.confirm{color:var(--bad);font-weight:600}
     <div class="timer"><i id="timer"></i></div>
     <div class="toast" id="toast" hidden></div>
     <div class="overlay" id="overlay"><div class="card" id="card"></div></div>
+    <div class="badge-toast" id="badgeToast" hidden aria-live="polite"></div>
   </div>
 
   <div class="calls">
@@ -159,7 +165,7 @@ footer button.confirm{color:var(--bad);font-weight:600}
   </div>
 
   <footer>
-    <span><span id="homeWrap" hidden><button id="home" type="button">Home</button> · </span><button id="rulesBtn" type="button">Rules</button> · <button id="mute" type="button">Sound: on</button></span>
+    <span><span id="homeWrap" hidden><button id="home" type="button">Home</button> · </span><button id="rulesBtn" type="button">Rules</button> · <button id="statsBtn" type="button">Stats</button> · <button id="mute" type="button">Sound: on</button></span>
     <span>Ball 6.7 cm · line 5 cm</span>
   </footer>
 </div>
@@ -187,6 +193,18 @@ const seatFor = n => n>0 && n%2===0 ? 'base' : 'side';
 
 // ---------- State ----------
 const S = { run:0, mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
+// ---------- Stats and badges (one localStorage key) ----------
+const ST = { calls:0, correct:0, rtSum:0, rtN:0, bestStreak:0, closest:null, tourneys:0, perfect:0, champion:0, dailies:0, badges:[] };
+try{ Object.assign(ST, JSON.parse(localStorage.getItem('ctl.stats'))||{}); if(!Array.isArray(ST.badges)) ST.badges=[]; }catch(e){}
+const BADGES = [
+  { id:'ten',     name:'Ten in a row',        tip:'10 correct calls in a row',                 got:s=>s.bestStreak>=10 },
+  { id:'five',    name:'Called a 5 mm ball',  tip:'A correct call within 5 mm of the line',    got:s=>s.closest!==null && s.closest<=5 },
+  { id:'perfect', name:'Perfect tournament',  tip:'Finish a tournament with no overrules',     got:s=>s.perfect>0 },
+  { id:'slam',    name:'Grand Slam champion', tip:'Survive all five tournaments',              got:s=>s.champion>0 },
+  { id:'dailies', name:'Seven dailies',       tip:'Play seven daily challenges',               got:s=>s.dailies>=7 },
+];
+function saveStats(){ try{ localStorage.setItem('ctl.stats', JSON.stringify(ST)); }catch(e){} }
+function updateStats(fn){ fn(ST); for(const b of BADGES) if(!ST.badges.includes(b.id) && b.got(ST)){ ST.badges.push(b.id); badgeToast(b.name); } saveStats(); }
 try{ S.best=+localStorage.getItem('ctl.best')||0; S.bestTier=+localStorage.getItem('ctl.tier')||0; S.muted=localStorage.getItem('ctl.mute')==='1'; }catch(e){}
 
 const $ = id=>document.getElementById(id);
@@ -422,7 +440,7 @@ function startPoint(){
   clearTimeout(quipTimer); $('quip').hidden=true;
   S.phase='flight'; tStart=performance.now(); cancelAnimationFrame(raf); raf=requestAnimationFrame(loop);
 }
-function setButtons(on){ $('btnIn').disabled=!on; $('btnOut').disabled=!on; $('rulesBtn').disabled=on; }
+function setButtons(on){ $('btnIn').disabled=!on; $('btnOut').disabled=!on; $('rulesBtn').disabled=on; $('statsBtn').disabled=on; }
 function makeCall(c){ if(S.phase!=='window'||resolved) return; resolve(c,(performance.now()-callT)/1000); }
 function resolve(call, elapsed){
   resolved=true; S.phase='review'; setButtons(false);
@@ -438,6 +456,10 @@ function resolve(call, elapsed){
     toast(call===null?'No call':call, 'Overruled');
   }
   if(S.mode==='daily') dailyRecord(right);
+  updateStats(st=>{
+    st.calls++; if(call!==null){ st.rtSum+=elapsed; st.rtN++; }
+    if(right){ st.correct++; st.bestStreak=Math.max(st.bestStreak,S.streak); const mm=Math.abs(ball.m)*1000; if(st.closest===null||mm<st.closest) st.closest=mm; }
+  });
   if(!right){ murmur(); quip('Player', pickQuote(), false); }
   else if(Math.abs(ball.m)<=0.005){ chime(); quip('Umpire', 'Good eyes.', true); }
   hud();
@@ -626,12 +648,37 @@ function intro(){
   $('go').onclick=()=>{ S.mode='career'; S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); };
   $('daily').onclick=()=> dailyLoad() ? dailyResults() : dailyIntro();
 }
-function rulesCard(){
+function sideCard(html){ // shows html; its #go button puts back exactly the card that was showing
   const c=$('card'), saved=document.createDocumentFragment();
   while(c.firstChild) saved.appendChild(c.firstChild);
   const back=()=>{ c.replaceChildren(saved); $('overlay').hidden=false; $('nx')?.focus(); };
-  card(`<h2>Rules</h2>${RULES}<div class="row"><button class="btn" id="go">Back</button></div>`);
+  card(html);
   $('go').onclick=back;
+}
+function rulesCard(){ sideCard(`<h2>Rules</h2>${RULES}<div class="row"><button class="btn" id="go">Back</button></div>`); }
+function statsCard(){
+  const pct=ST.calls?Math.round(100*ST.correct/ST.calls):0, chip=(v,k)=>`<span class="chip"><b>${v}</b> ${k}</span>`;
+  sideCard(`
+    <h2>Your stats</h2>
+    <div class="chips">
+      ${chip(ST.calls.toLocaleString(),'calls')}${chip(ST.correct.toLocaleString(),`correct (${pct}%)`)}
+      ${chip(ST.rtN?(ST.rtSum/ST.rtN).toFixed(2)+' s':'–','avg call time')}${chip(ST.bestStreak,'best streak')}
+      ${chip(ST.closest===null?'–':Math.round(ST.closest)+' mm','closest correct call')}
+      ${chip(ST.tourneys,'tournaments completed')}${chip(ST.dailies,'dailies played')}
+    </div>
+    <div class="subhead">Badges · ${ST.badges.length} of ${BADGES.length}</div>
+    <div class="chips">${BADGES.map(b=>`<span class="chip badge ${ST.badges.includes(b.id)?'got':''}" title="${b.tip}">${ST.badges.includes(b.id)?'✓ ':''}${b.name}</span>`).join('')}</div>
+    <span class="hint">Saved on this device</span>
+    <div class="row"><button class="btn" id="go">Back</button></div>
+  `);
+}
+let badgeQueue=[], badgeBusy=false;
+function badgeToast(name){ badgeQueue.push(name); if(!badgeBusy) nextBadge(); }
+function nextBadge(){
+  const el=$('badgeToast'), name=badgeQueue.shift();
+  if(!name){ badgeBusy=false; el.hidden=true; return; }
+  badgeBusy=true; el.innerHTML=`<span>Badge earned: ${name}</span>`; el.hidden=false;
+  setTimeout(nextBadge, 2400);
 }
 function startTournament(){
   const T=TIERS[S.tier]; S.call=0; S.over=0; hud();
@@ -648,6 +695,7 @@ function startTournament(){
 }
 function endTournament(){
   S.phase='idle';
+  updateStats(st=>{ st.tourneys++; if(S.over===0) st.perfect++; if(S.tier>=TIERS.length-1) st.champion++; });
   if(S.tier>=TIERS.length-1){ win(); return; }
   const bonus=(3-S.over)*250; S.score+=bonus; hud();
   const T=TIERS[S.tier]; S.tier++;
@@ -734,7 +782,7 @@ function dailyStart(){
   R=seeded('ctl-daily-'+key);
   S.mode='daily'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0;
   S.daily={ key, n, results:[], pts:0 };
-  dailySave();
+  dailySave(); updateStats(st=>{ st.dailies++; });
   $('tName').textContent=`Daily #${n}`; hud();
   startPoint();
 }
@@ -811,6 +859,7 @@ $('home').onclick=()=>{
 };
 function disarmHome(){ clearTimeout(homeArm); homeArm=0; $('home').textContent='Home'; $('home').classList.remove('confirm'); }
 $('rulesBtn').onclick=()=>{ if(S.phase==='idle'||(S.phase==='review' && $('nx') && !$('overlay').hidden)) rulesCard(); };
+$('statsBtn').onclick=()=>{ if(S.phase==='idle'||S.phase==='end'||(S.phase==='review' && $('nx') && !$('overlay').hidden)) statsCard(); };
 $('mute').onclick=()=>{ S.muted=!S.muted; $('mute').textContent='Sound: '+(S.muted?'off':'on'); try{localStorage.setItem('ctl.mute',S.muted?'1':'0')}catch(e){} };
 $('mute').textContent='Sound: '+(S.muted?'off':'on');
 
