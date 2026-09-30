@@ -88,6 +88,7 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:non
 .dots i.y{background:var(--good)} .dots i.n{background:var(--bad)}
 .hawk{display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:center;text-align:left;width:100%;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:10px}
 .hawk canvas{width:170px;height:170px;aspect-ratio:1;border-radius:6px}
+.hawk .seat{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
 .hawk .verdict{font-family:var(--display);font-weight:800;font-size:40px;line-height:1;text-transform:uppercase}
 .hawk .mm{font-family:var(--display);font-weight:600;font-size:18px;color:var(--muted);line-height:1.1}
 .hawk .yours{font-size:13px;margin-top:8px;color:var(--muted)}
@@ -175,7 +176,12 @@ const TIERS = [
 // Daily challenge: DAILY_N balls, BALLS_PER_TIER from each tournament in order, seeded by the local calendar date.
 const DAILY_N = 20, BALLS_PER_TIER = 4, DAILY_EPOCH = [2026,9,30]; // daily #1
 const BALL_R = 0.0335, LINE_W = 0.05, MARK_L = 0.11, MARK_W = 0.072, G = 9.81;
-const FAR_BASE = 23.77, NET_Y = 11.885, SVC1 = 5.485, SVC2 = 18.285, CENTRE = -4.115;
+const FAR_BASE = 23.77, NET_Y = 11.885, SVC1 = 5.485, SVC2 = 18.285, CENTRE = -4.115, SINGLES_W = 8.23;
+// Seats alternate within a tournament: odd calls on the sideline (in/out across x), even calls centred behind the
+// near baseline (long/in along y). Only the camera, the judged line and the margin axis differ. aim = metres past the
+// landing spot the camera centres on.
+const SEATS = { side:{ name:'Sideline', x:LINE_W/2, y:-2.6, aim:1.5 }, base:{ name:'Baseline', x:CENTRE, y:-4.2, aim:2.7 } };
+const seatFor = n => n>0 && n%2===0 ? 'base' : 'side';
 
 // ---------- State ----------
 const S = { mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
@@ -237,6 +243,7 @@ function drawScene(t){
   cx.fillStyle='#1F3A5F'; cx.fillRect(0,hz-8,W,9);
   cx.fillStyle='rgba(255,255,255,.55)'; cx.font='800 7px "Barlow Condensed", sans-serif'; cx.textAlign='left';
   for(let x=-20;x<W;x+=120) cx.fillText('CALL THE LINE', x, hz-1.5);
+  if(ball && ball.seat==='base') drawBaseCourt(T, hz); else {
   // ground
   const yN=-1.4, yF=60;
   poly([[-9,yN],[0,yN],[0,yF],[-9,yF]], T.court);
@@ -258,6 +265,7 @@ function drawScene(t){
   poly([[-9,NET_Y,0],[0.95,NET_Y,0],[0.95,NET_Y,1.07],[-9,NET_Y,0.914]], 'rgba(20,30,40,.5)');
   poly([[-9,NET_Y,0.914],[0.95,NET_Y,1.07],[0.95,NET_Y,1.12],[-9,NET_Y,0.96]], '#F2F2F2');
   poly([[0.91,NET_Y,0],[0.99,NET_Y,0],[0.99,NET_Y,1.14],[0.91,NET_Y,1.14]], '#2A2F33');
+  }
   // ball
   if(ball && ball.vis){
     const sh=proj(ball.x,ball.y,0), r0=FPX*BALL_R/Math.max(sh.d,0.2);
@@ -278,25 +286,53 @@ function drawScene(t){
   cx.fillStyle=vg; cx.fillRect(0,0,W,H);
   cx.fillStyle='#16221B'; cx.fillRect(0,H-16,W,16);
   cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(0,H-16,W,2);
-  cx.fillStyle='#D6E23A'; cx.font='800 10px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('LINE JUDGE · SIDELINE', 10, H-5);
+  cx.fillStyle='#D6E23A'; cx.font='800 10px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('LINE JUDGE · '+SEATS[ball?ball.seat:'side'].name.toUpperCase(), 10, H-5);
   const total = S.mode==='daily' ? DAILY_N : T.calls;
   cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(`CALL ${Math.min(S.call,total)} OF ${total}`, W-10, H-5);
+}
+function drawBaseCourt(T, hz){ // view from behind the near baseline: both singles sidelines, baseline across the view
+  const L=-SINGLES_W, yN=cam.y+1.2, yF=60, BW=LINE_W;
+  poly([[-20,yN],[14,yN],[14,yF],[-20,yF]], T.out);
+  poly([[L,0],[LINE_W,0],[LINE_W,FAR_BASE],[L,FAR_BASE]], T.court);
+  if(T.surf==='Clay'){ for(let y=0;y<FAR_BASE;y+=0.6) poly([[L,y],[LINE_W,y],[LINE_W,y+0.25],[L,y+0.25]],'rgba(255,255,255,.04)'); }
+  if(T.surf==='Grass'){ for(let y=0;y<FAR_BASE;y+=2) poly([[L,y],[LINE_W,y],[LINE_W,y+1],[L,y+1]],'rgba(255,255,255,.06)'); }
+  const hz2=cx.createLinearGradient(0,hz,0,H); hz2.addColorStop(0,'rgba(255,255,255,.28)'); hz2.addColorStop(0.35,'rgba(255,255,255,0)');
+  cx.fillStyle=hz2; cx.fillRect(0,hz,W,H-hz);
+  // the judged line: near baseline, outer edge at y=0, line runs into the court to y=BW
+  poly([[L,0],[LINE_W,0],[LINE_W,BW],[L,BW]], T.line);
+  poly([[L,FAR_BASE],[LINE_W,FAR_BASE],[LINE_W,FAR_BASE+0.1],[L,FAR_BASE+0.1]], T.line);
+  poly([[0,0],[LINE_W,0],[LINE_W,FAR_BASE+0.1],[0,FAR_BASE+0.1]], T.line);
+  poly([[L,0],[L+LINE_W,0],[L+LINE_W,FAR_BASE+0.1],[L,FAR_BASE+0.1]], T.line);
+  poly([[L,SVC1],[0,SVC1],[0,SVC1+0.05],[L,SVC1+0.05]], T.line);
+  poly([[L,SVC2],[0,SVC2],[0,SVC2+0.05],[L,SVC2+0.05]], T.line);
+  poly([[CENTRE,SVC1],[CENTRE+0.05,SVC1],[CENTRE+0.05,SVC2],[CENTRE,SVC2]], T.line);
+  // net sagging from 1.07 m at the posts to 0.914 m at the centre, posts both sides
+  const pl=L-0.95, pr=0.95;
+  poly([[pl,NET_Y,0],[pr,NET_Y,0],[pr,NET_Y,1.07],[CENTRE,NET_Y,0.914],[pl,NET_Y,1.07]], 'rgba(20,30,40,.2)'); // seen face-on: lighter mesh
+  poly([[pl,NET_Y,1.07],[CENTRE,NET_Y,0.914],[CENTRE,NET_Y,0.96],[pl,NET_Y,1.12]], '#F2F2F2');
+  poly([[CENTRE,NET_Y,0.914],[pr,NET_Y,1.07],[pr,NET_Y,1.12],[CENTRE,NET_Y,0.96]], '#F2F2F2');
+  poly([[pl-0.04,NET_Y,0],[pl+0.04,NET_Y,0],[pl+0.04,NET_Y,1.14],[pl-0.04,NET_Y,1.14]], '#2A2F33');
+  poly([[pr-0.04,NET_Y,0],[pr+0.04,NET_Y,0],[pr+0.04,NET_Y,1.14],[pr-0.04,NET_Y,1.14]], '#2A2F33');
 }
 
 // ---------- Ball ----------
 let R=Math.random; // swapped for a seeded generator during the daily challenge
 const rnd=(a,b)=>a+R()*(b-a);
 function newBall(){
-  const T=TIERS[S.tier];
-  const vy=-rnd(T.speed[0],T.speed[1]), yL=rnd(T.near[0],T.near[1]);
-  setPitch(yL+1.5);
+  const T=TIERS[S.tier], seat=seatFor(S.call), St=SEATS[seat];
+  cam.x=St.x; cam.y=St.y;
+  // along the judged line: distance down the sideline, or across the baseline within the judge's view
+  const vy=-rnd(T.speed[0],T.speed[1]), along = seat==='side' ? rnd(T.near[0],T.near[1]) : CENTRE+rnd(-0.7,0.7);
   const ang=rnd(T.angle*0.4,T.angle)*(R()<0.5?-1:1), vx=ang*Math.abs(vy);
   const len=Math.hypot(vx,vy), ux=vx/len, uy=vy/len;
-  const extX=Math.sqrt(Math.pow(MARK_L/2*ux,2)+Math.pow(MARK_W/2*uy,2));
+  // half-extent of the elongated mark across the judged line (x for the sideline, y for the baseline)
+  const ext = seat==='side' ? Math.hypot(MARK_L/2*ux, MARK_W/2*uy) : Math.hypot(MARK_L/2*uy, MARK_W/2*ux);
   // margin between the mark's inner edge and the line's outer edge: negative = in, positive = out
   const m = R()<0.22 ? rnd(0.06,0.22)*(R()<0.5?-1:1) : rnd(T.margin[0],T.margin[1])*(R()<0.5?-1:1);
+  const xL = seat==='side' ? LINE_W+m+ext : along, yL = seat==='side' ? along : -m-ext;  // baseline outer edge at y=0, out is y<0
+  setPitch(yL+St.aim);
   const a=0.21*Math.abs(vy), spawn=14;
-  ball={ xL:LINE_W+m+extX, yL, vx, vy, a, b:0.55*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, extX, m, isIn:m<0, squash:1 };
+  ball={ xL, yL, vx, vy, a, b:0.55*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, ext, seat, m, isIn:m<0, squash:1 };
   trail=[];
 }
 function stepBall(t){
@@ -378,7 +414,7 @@ function startPoint(){
   S.call++;
   if(S.mode==='daily'){ S.tier=Math.min(TIERS.length-1, Math.floor((S.call-1)/BALLS_PER_TIER)); $('tSw').style.background=TIERS[S.tier].court; }
   const T=TIERS[S.tier];
-  $('tProg').textContent = S.mode==='daily' ? `${T.surf} · call ${S.call} of ${DAILY_N}` : `${T.surf} · call ${S.call} of ${T.calls}`;
+  $('tProg').textContent = `${T.surf} · call ${S.call} of ${S.mode==='daily'?DAILY_N:T.calls} · ${SEATS[seatFor(S.call)].name}`;
   newBall(); callWindow=T.win; resolved=false;
   $('timer').style.width='100%'; setButtons(false); hideOverlay(); toast('');
   S.phase='flight'; tStart=performance.now(); cancelAnimationFrame(raf); raf=requestAnimationFrame(loop);
@@ -416,8 +452,9 @@ function toast(big, small){ const el=$('toast'); el.innerHTML = big ? `${big}<sm
 // ---------- Hawk-Eye review ----------
 function showHawk(right, call, elapsed){
   const T=TIERS[S.tier], b=ball, mm=Math.round(Math.abs(b.m)*1000);
-  const clearlyIn=(b.xL+b.extX)<0;
-  const by = clearlyIn ? 'Well inside' : (b.isIn?`In by ${mm} mm`:`Out by ${mm} mm`);
+  const clearlyIn = b.m+2*b.ext < -LINE_W;  // the whole mark is inside the line's inner edge
+  const by = clearlyIn ? 'Well inside' : (b.isIn?`In by ${mm} mm`:`${b.seat==='base'?'Long':'Out'} by ${mm} mm`);
+  const dist = b.seat==='side' ? b.yL : Math.hypot(b.xL-cam.x, b.yL-cam.y);
   const yours = call===null ? `No call in ${callWindow} s` : `Your call: <b>${call.toUpperCase()}</b> in ${elapsed.toFixed(2)} s`;
   const last=S.call>=T.calls, sacked=S.over>=3;
   const label = S.mode==='daily' ? (S.call>=DAILY_N?'Results':'Next call') : sacked?'Continue':last?(S.tier<TIERS.length-1?'Promotion':'Finish'):'Next call';
@@ -426,9 +463,10 @@ function showHawk(right, call, elapsed){
     <div class="hawk">
       <canvas id="hawk" width="340" height="340" aria-label="Review of the bounce mark"></canvas>
       <div>
+        <div class="seat">${SEATS[b.seat].name} judge</div>
         <div class="verdict" style="color:${b.isIn?'var(--good)':'var(--bad)'}">${b.isIn?'In':'Out'}</div>
         <div class="mm">${by}</div>
-        <div class="yours">${yours}<br>${b.yL.toFixed(1)} m away · ${Math.round(Math.abs(b.vy)*3.6)} km/h</div>
+        <div class="yours">${yours}<br>${dist.toFixed(1)} m away · ${Math.round(Math.abs(b.vy)*3.6)} km/h</div>
       </div>
     </div>
     <div class="row"><button class="btn" id="nx">${label}</button><span class="hint kbd">Space</span></div>
@@ -445,24 +483,39 @@ function nextStep(){
 function drawHawk(c){
   const g=c.getContext('2d'), T=TIERS[S.tier], b=ball, sc=1150, SZ=340;
   const X=x=>SZ/2+(x-b.xL)*sc, Y=y=>SZ/2-(y-b.yL)*sc;
-  g.fillStyle=T.court; g.fillRect(0,0,SZ,SZ);
-  g.fillStyle=T.out; g.fillRect(X(LINE_W),0,SZ,SZ);
-  g.fillStyle=T.line; g.fillRect(X(0),0,LINE_W*sc,SZ);
+  const base = b.seat==='base';
+  if(base){ // court above (far side), baseline across, out below (towards the judge)
+    g.fillStyle=T.out; g.fillRect(0,0,SZ,SZ);
+    g.fillStyle=T.court; g.fillRect(0,0,SZ,Y(LINE_W));
+    g.fillStyle=T.line; g.fillRect(0,Y(LINE_W),SZ,LINE_W*sc);
+  }else{
+    g.fillStyle=T.court; g.fillRect(0,0,SZ,SZ);
+    g.fillStyle=T.out; g.fillRect(X(LINE_W),0,SZ,SZ);
+    g.fillStyle=T.line; g.fillRect(X(0),0,LINE_W*sc,SZ);
+  }
   // mark
   g.save(); g.translate(X(b.xL),Y(b.yL)); g.rotate(Math.atan2(-b.uy,b.ux)+Math.PI/2);
   g.beginPath(); g.ellipse(0,0,MARK_W/2*sc,MARK_L/2*sc,0,0,7);
   g.fillStyle='rgba(214,226,58,.85)'; g.fill(); g.lineWidth=3; g.strokeStyle='#16221B'; g.stroke(); g.restore();
   // measurement between the mark's inner edge and the line's outer edge
-  const ex=X(b.xL-b.extX), lx=X(LINE_W), my=SZ-46;
   g.strokeStyle='#16221B'; g.lineWidth=1.5; g.setLineDash([5,4]);
-  g.beginPath(); g.moveTo(ex,18); g.lineTo(ex,my+10); g.moveTo(lx,18); g.lineTo(lx,my+10); g.stroke(); g.setLineDash([]);
-  if(Math.abs(ex-lx)>6){ g.lineWidth=2; g.beginPath(); g.moveTo(Math.min(ex,lx),my); g.lineTo(Math.max(ex,lx),my); g.stroke();
-    [Math.min(ex,lx),Math.max(ex,lx)].forEach((x,i)=>{ const d=i?-1:1; g.beginPath(); g.moveTo(x,my); g.lineTo(x+d*6,my-4); g.lineTo(x+d*6,my+4); g.closePath(); g.fillStyle='#16221B'; g.fill(); }); }
+  if(base){ // same measurement turned 90 degrees: horizontal guides, vertical arrow on the left
+    const ey=Y(b.yL+b.ext), ly=Y(0), mx=46;
+    g.beginPath(); g.moveTo(mx-10,ey); g.lineTo(SZ-18,ey); g.moveTo(mx-10,ly); g.lineTo(SZ-18,ly); g.stroke(); g.setLineDash([]);
+    if(Math.abs(ey-ly)>6){ g.lineWidth=2; g.beginPath(); g.moveTo(mx,Math.min(ey,ly)); g.lineTo(mx,Math.max(ey,ly)); g.stroke();
+      [Math.min(ey,ly),Math.max(ey,ly)].forEach((y,i)=>{ const d=i?-1:1; g.beginPath(); g.moveTo(mx,y); g.lineTo(mx-4,y+d*6); g.lineTo(mx+4,y+d*6); g.closePath(); g.fillStyle='#16221B'; g.fill(); }); }
+  }else{
+    const ex=X(b.xL-b.ext), lx=X(LINE_W), my=SZ-46;
+    g.beginPath(); g.moveTo(ex,18); g.lineTo(ex,my+10); g.moveTo(lx,18); g.lineTo(lx,my+10); g.stroke(); g.setLineDash([]);
+    if(Math.abs(ex-lx)>6){ g.lineWidth=2; g.beginPath(); g.moveTo(Math.min(ex,lx),my); g.lineTo(Math.max(ex,lx),my); g.stroke();
+      [Math.min(ex,lx),Math.max(ex,lx)].forEach((x,i)=>{ const d=i?-1:1; g.beginPath(); g.moveTo(x,my); g.lineTo(x+d*6,my-4); g.lineTo(x+d*6,my+4); g.closePath(); g.fillStyle='#16221B'; g.fill(); }); }
+  }
   g.fillStyle='rgba(255,255,255,.92)'; g.fillRect(SZ/2-58,SZ-34,116,26);
   g.fillStyle=b.isIn?'#2F8F4E':'#C8402F'; g.font='800 18px "Barlow Condensed", sans-serif'; g.textAlign='center'; g.textBaseline='middle';
   g.fillText((b.isIn?'IN':'OUT')+' · '+Math.round(Math.abs(b.m)*1000)+' mm', SZ/2, SZ-21);
   g.textBaseline='alphabetic'; g.font='600 11px Barlow, sans-serif'; g.fillStyle='rgba(255,255,255,.9)';
-  g.textAlign='left'; g.fillText('COURT', 8, 16); g.textAlign='right'; g.fillText('OUT', SZ-8, 16);
+  g.textAlign='left'; g.fillText('COURT', 8, 16);
+  if(base) g.fillText('OUT', 8, SZ-8); else { g.textAlign='right'; g.fillText('OUT', SZ-8, 16); }
 }
 
 
