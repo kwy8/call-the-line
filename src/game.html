@@ -186,13 +186,31 @@ const TIERS = [
 const DAILY_N = 20, BALLS_PER_TIER = 4, DAILY_EPOCH = [2026,9,30]; // daily #1
 const BALL_R = 0.0335, LINE_W = 0.05, MARK_L = 0.11, MARK_W = 0.072, G = 9.81;
 const FAR_BASE = 23.77, NET_Y = 11.885, SVC1 = 5.485, SVC2 = 18.285, CENTRE = -4.115, SINGLES_W = 8.23;
-// One seat per tournament (random) or per daily (from the date): the sideline (in/out across x), or centred behind
-// the near baseline (long/in along y). Only the camera, the judged line and the margin axis differ. aim = metres past the
-// landing spot the camera centres on.
-const SEATS = { side:{ name:'Sideline', x:LINE_W/2, y:-2.6, aim:1.5 }, base:{ name:'Baseline', x:CENTRE, y:-4.2, aim:2.7 } };
+// Views: how a seat is simulated and measured. axis = the coordinate the margin is measured on, line = outer edge of the
+// judged line on that axis, cam = judge's eye position (x, y), aim = metres past the landing spot the camera centres on.
+//   side: end of the right sideline, looking down it (in/out across x)
+//   base: centred behind the near baseline (long/in along y)
+//   svc:  just outside the right singles sideline, behind the near service line, looking across it (long/in along y)
+const VIEWS = {
+  side: { axis:'x', line:LINE_W, cam:[LINE_W/2, -2.6],    aim:1.5 },
+  base: { axis:'y', line:0,      cam:[CENTRE, -4.2],      aim:2.7 },
+  svc:  { axis:'y', line:SVC1,   cam:[0.35, SVC1-4.2],    aim:2.7 },
+};
+// The court is symmetric, so a left-hand seat sees exactly the right-hand view in a mirror (flip), and the far baseline
+// seen from behind looks the same as the near one (far). Play always runs in the right/near frame; only the picture flips.
+const SEATS = {
+  'sideline-right':     { name:'Right sideline',     view:'side' },
+  'sideline-left':      { name:'Left sideline',      view:'side', flip:true },
+  'baseline-near':      { name:'Near baseline',      view:'base' },
+  'baseline-far':       { name:'Far baseline',       view:'base', far:true },
+  'service-line-right': { name:'Right service line', view:'svc' },
+  'service-line-left':  { name:'Left service line',  view:'svc', flip:true },
+};
+// Tournaments 1-2 (tiers 0-1): sideline and baseline seats; service-line seats from tournament 3
+function pickSeat(tier, r){ const pool=Object.keys(SEATS).filter(id=>tier>=2||SEATS[id].view!=='svc'); return pool[Math.min(pool.length-1,Math.floor(r*pool.length))]; }
 
 // ---------- State ----------
-const S = { run:0, seat:'side', mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
+const S = { run:0, seat:'sideline-right', mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
 // ---------- Stats and badges (one localStorage key) ----------
 const ST = { calls:0, correct:0, rtSum:0, rtN:0, bestStreak:0, closest:null, tourneys:0, perfect:0, champion:0, dailies:0, badges:[] };
 try{ Object.assign(ST, JSON.parse(localStorage.getItem('ctl.stats'))||{}); if(!Array.isArray(ST.badges)) ST.badges=[]; }catch(e){}
@@ -221,12 +239,12 @@ function fit(){
 fit(); window.addEventListener('resize', fit); window.addEventListener('orientationchange', ()=>setTimeout(fit,150));
 
 // ---------- Camera: in line with the sideline, eye height 1.1 m ----------
-const cam = { x:LINE_W/2, y:-2.6, z:1.1, pitch:0 };
+const cam = { x:LINE_W/2, y:-2.6, z:1.1, pitch:0, flip:false };
 function setPitch(centerY){ const tall=H>W; cam.pitch=Math.atan2(cam.z, (tall?centerY*0.85:centerY)-cam.y); }
 function proj(x,y,z){
   const dx=x-cam.x, dy=y-cam.y, dz=z-cam.z, c=Math.cos(cam.pitch), s=Math.sin(cam.pitch);
   const depth=dy*c-dz*s, up=dy*s+dz*c, d=Math.max(depth,0.05);
-  return { sx:W/2+FPX*dx/d, sy:H*0.5-FPX*up/d, d:depth };
+  return { sx:W/2+(cam.flip?-1:1)*FPX*dx/d, sy:H*0.5-FPX*up/d, d:depth };
 }
 function poly(pts, fill){
   cx.beginPath();
@@ -263,7 +281,7 @@ function drawScene(t){
   cx.fillStyle='#1F3A5F'; cx.fillRect(0,hz-8,W,9);
   cx.fillStyle='rgba(255,255,255,.55)'; cx.font='800 7px "Barlow Condensed", sans-serif'; cx.textAlign='left';
   for(let x=-20;x<W;x+=120) cx.fillText('CALL THE LINE', x, hz-1.5);
-  if(ball && ball.seat==='base') drawBaseCourt(T, hz); else {
+  if(ball && ball.view!=='side') drawBaseCourt(T, hz); else {
   // ground
   const yN=-1.4, yF=60;
   poly([[-9,yN],[0,yN],[0,yF],[-9,yF]], T.court);
@@ -306,23 +324,23 @@ function drawScene(t){
   cx.fillStyle=vg; cx.fillRect(0,0,W,H);
   cx.fillStyle='#16221B'; cx.fillRect(0,H-16,W,16);
   cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(0,H-16,W,2);
-  cx.fillStyle='#D6E23A'; cx.font='800 10px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('LINE JUDGE · '+SEATS[ball?ball.seat:'side'].name.toUpperCase(), 10, H-5);
+  cx.fillStyle='#D6E23A'; cx.font='800 10px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('LINE JUDGE · '+SEATS[ball?ball.seat:'sideline-right'].name.toUpperCase(), 10, H-5);
   const total = S.mode==='daily' ? DAILY_N : T.calls;
   cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(`CALL ${Math.min(S.call,total)} OF ${total}`, W-10, H-5);
 }
-function drawBaseCourt(T, hz){ // view from behind the near baseline: both singles sidelines, baseline across the view
-  const L=-SINGLES_W, yN=cam.y+1.2, yF=60, BW=LINE_W;
+function drawBaseCourt(T, hz){ // looking down the court: both singles sidelines, baseline and service lines across the view
+  const L=-SINGLES_W, yN=cam.y+1.2, yF=60, BW=LINE_W, y0=Math.max(0,yN);  // nothing behind the judge is drawn
   poly([[-20,yN],[14,yN],[14,yF],[-20,yF]], T.out);
-  poly([[L,0],[LINE_W,0],[LINE_W,FAR_BASE],[L,FAR_BASE]], T.court);
-  if(T.surf==='Clay'){ for(let y=0;y<FAR_BASE;y+=0.6) poly([[L,y],[LINE_W,y],[LINE_W,y+0.25],[L,y+0.25]],'rgba(255,255,255,.04)'); }
-  if(T.surf==='Grass'){ for(let y=0;y<FAR_BASE;y+=2) poly([[L,y],[LINE_W,y],[LINE_W,y+1],[L,y+1]],'rgba(255,255,255,.06)'); }
+  poly([[L,y0],[LINE_W,y0],[LINE_W,FAR_BASE],[L,FAR_BASE]], T.court);
+  if(T.surf==='Clay'){ for(let y=0;y<FAR_BASE;y+=0.6) if(y>=y0) poly([[L,y],[LINE_W,y],[LINE_W,y+0.25],[L,y+0.25]],'rgba(255,255,255,.04)'); }
+  if(T.surf==='Grass'){ for(let y=0;y<FAR_BASE;y+=2) if(y>=y0) poly([[L,y],[LINE_W,y],[LINE_W,y+1],[L,y+1]],'rgba(255,255,255,.06)'); }
   const hz2=cx.createLinearGradient(0,hz,0,H); hz2.addColorStop(0,'rgba(255,255,255,.28)'); hz2.addColorStop(0.35,'rgba(255,255,255,0)');
   cx.fillStyle=hz2; cx.fillRect(0,hz,W,H-hz);
-  // the judged line: near baseline, outer edge at y=0, line runs into the court to y=BW
-  poly([[L,0],[LINE_W,0],[LINE_W,BW],[L,BW]], T.line);
+  // near baseline: outer edge at y=0, line runs into the court to y=BW
+  if(yN<0) poly([[L,0],[LINE_W,0],[LINE_W,BW],[L,BW]], T.line);
   poly([[L,FAR_BASE],[LINE_W,FAR_BASE],[LINE_W,FAR_BASE+0.1],[L,FAR_BASE+0.1]], T.line);
-  poly([[0,0],[LINE_W,0],[LINE_W,FAR_BASE+0.1],[0,FAR_BASE+0.1]], T.line);
-  poly([[L,0],[L+LINE_W,0],[L+LINE_W,FAR_BASE+0.1],[L,FAR_BASE+0.1]], T.line);
+  poly([[0,y0],[LINE_W,y0],[LINE_W,FAR_BASE+0.1],[0,FAR_BASE+0.1]], T.line);
+  poly([[L,y0],[L+LINE_W,y0],[L+LINE_W,FAR_BASE+0.1],[L,FAR_BASE+0.1]], T.line);
   poly([[L,SVC1],[0,SVC1],[0,SVC1+0.05],[L,SVC1+0.05]], T.line);
   poly([[L,SVC2],[0,SVC2],[0,SVC2+0.05],[L,SVC2+0.05]], T.line);
   poly([[CENTRE,SVC1],[CENTRE+0.05,SVC1],[CENTRE+0.05,SVC2],[CENTRE,SVC2]], T.line);
@@ -339,20 +357,22 @@ function drawBaseCourt(T, hz){ // view from behind the near baseline: both singl
 let R=Math.random; // swapped for a seeded generator during the daily challenge
 const rnd=(a,b)=>a+R()*(b-a);
 function newBall(){
-  const T=TIERS[S.tier], seat=S.seat, St=SEATS[seat];
-  cam.x=St.x; cam.y=St.y;
-  // along the judged line: distance down the sideline, or across the baseline within the judge's view
-  const vy=-rnd(T.speed[0],T.speed[1]), along = seat==='side' ? rnd(T.near[0],T.near[1]) : CENTRE+rnd(-0.7,0.7);
+  const T=TIERS[S.tier], seat=SEATS[S.seat], view=seat.view, V=VIEWS[view];
+  cam.x=V.cam[0]; cam.y=V.cam[1]; cam.flip=!!seat.flip;
+  // along the judged line: distance down the sideline, across the baseline, or across the service box near the
+  // sideline the judge sits beside, all within the judge's view
+  const vy=-rnd(T.speed[0],T.speed[1]), along = view==='side' ? rnd(T.near[0],T.near[1]) : view==='base' ? CENTRE+rnd(-0.7,0.7) : rnd(-0.6,-0.1);
   const ang=rnd(T.angle*0.4,T.angle)*(R()<0.5?-1:1), vx=ang*Math.abs(vy);
   const len=Math.hypot(vx,vy), ux=vx/len, uy=vy/len;
-  // half-extent of the elongated mark across the judged line (x for the sideline, y for the baseline)
-  const ext = seat==='side' ? Math.hypot(MARK_L/2*ux, MARK_W/2*uy) : Math.hypot(MARK_L/2*uy, MARK_W/2*ux);
+  // half-extent of the elongated mark across the judged line
+  const ext = V.axis==='x' ? Math.hypot(MARK_L/2*ux, MARK_W/2*uy) : Math.hypot(MARK_L/2*uy, MARK_W/2*ux);
   // margin between the mark's inner edge and the line's outer edge: negative = in, positive = out
   const m = R()<0.22 ? rnd(0.06,0.22)*(R()<0.5?-1:1) : rnd(T.margin[0],T.margin[1])*(R()<0.5?-1:1);
-  const xL = seat==='side' ? LINE_W+m+ext : along, yL = seat==='side' ? along : -m-ext;  // baseline outer edge at y=0, out is y<0
-  setPitch(yL+St.aim);
+  // the line's outer edge is V.line; out is x > V.line (sideline) or y < V.line (baseline, service line)
+  const xL = V.axis==='x' ? V.line+m+ext : along, yL = V.axis==='x' ? along : V.line-m-ext;
+  setPitch(yL+V.aim);
   const a=0.21*Math.abs(vy), spawn=14;
-  ball={ xL, yL, vx, vy, a, b:0.55*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, ext, seat, m, isIn:m<0, squash:1 };
+  ball={ xL, yL, vx, vy, a, b:0.55*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, ext, seat:S.seat, view, flip:!!seat.flip, m, isIn:m<0, squash:1 };
   trail=[];
 }
 function stepBall(t){
@@ -479,8 +499,8 @@ function toast(big, small){ const el=$('toast'); el.innerHTML = big ? `${big}<sm
 function showEagle(right, call, elapsed){
   const T=TIERS[S.tier], b=ball, mm=Math.round(Math.abs(b.m)*1000);
   const clearlyIn = b.m+2*b.ext < -LINE_W;  // the whole mark is inside the line's inner edge
-  const by = clearlyIn ? 'Well inside' : (b.isIn?`In by ${mm} mm`:`${b.seat==='base'?'Long':'Out'} by ${mm} mm`);
-  const dist = b.seat==='side' ? b.yL : Math.hypot(b.xL-cam.x, b.yL-cam.y);
+  const by = clearlyIn ? 'Well inside' : (b.isIn?`In by ${mm} mm`:`${VIEWS[b.view].axis==='y'?'Long':'Out'} by ${mm} mm`);
+  const dist = b.view==='side' ? b.yL : Math.hypot(b.xL-cam.x, b.yL-cam.y);
   const yours = call===null ? `No call in ${callWindow} s` : `Your call: <b>${call.toUpperCase()}</b> in ${elapsed.toFixed(2)} s`;
   const last=S.call>=T.calls, sacked=S.over>=3;
   const label = S.mode==='daily' ? (S.call>=DAILY_N?'Results':'Next call') : sacked?'Continue':last?(S.tier<TIERS.length-1?'Promotion':'Finish'):'Next call';
@@ -510,11 +530,12 @@ function nextStep(){
 function drawEagle(c){
   const g=c.getContext('2d'), T=TIERS[S.tier], b=ball, sc=1150, SZ=340;
   const X=x=>SZ/2+(x-b.xL)*sc, Y=y=>SZ/2-(y-b.yL)*sc;
-  const base = b.seat==='base';
-  if(base){ // court above (far side), baseline across, out below (towards the judge)
+  const V=VIEWS[b.view], base=V.axis==='y', o=V.line;
+  g.save(); if(b.flip){ g.translate(SZ,0); g.scale(-1,1); }  // left-hand seats: the judge's mirror image
+  if(base){ // court (or service box) above, the judged line across, out below (towards the judge)
     g.fillStyle=T.out; g.fillRect(0,0,SZ,SZ);
-    g.fillStyle=T.court; g.fillRect(0,0,SZ,Y(LINE_W));
-    g.fillStyle=T.line; g.fillRect(0,Y(LINE_W),SZ,LINE_W*sc);
+    g.fillStyle=T.court; g.fillRect(0,0,SZ,Y(o+LINE_W));
+    g.fillStyle=T.line; g.fillRect(0,Y(o+LINE_W),SZ,LINE_W*sc);
   }else{
     g.fillStyle=T.court; g.fillRect(0,0,SZ,SZ);
     g.fillStyle=T.out; g.fillRect(X(LINE_W),0,SZ,SZ);
@@ -527,7 +548,7 @@ function drawEagle(c){
   // measurement between the mark's inner edge and the line's outer edge
   g.strokeStyle='#16221B'; g.lineWidth=1.5; g.setLineDash([5,4]);
   if(base){ // same measurement turned 90 degrees: horizontal guides, vertical arrow on the left
-    const ey=Y(b.yL+b.ext), ly=Y(0), mx=46;
+    const ey=Y(b.yL+b.ext), ly=Y(o), mx=46;
     g.beginPath(); g.moveTo(mx-10,ey); g.lineTo(SZ-18,ey); g.moveTo(mx-10,ly); g.lineTo(SZ-18,ly); g.stroke(); g.setLineDash([]);
     if(Math.abs(ey-ly)>6){ g.lineWidth=2; g.beginPath(); g.moveTo(mx,Math.min(ey,ly)); g.lineTo(mx,Math.max(ey,ly)); g.stroke();
       [Math.min(ey,ly),Math.max(ey,ly)].forEach((y,i)=>{ const d=i?-1:1; g.beginPath(); g.moveTo(mx,y); g.lineTo(mx-4,y+d*6); g.lineTo(mx+4,y+d*6); g.closePath(); g.fillStyle='#16221B'; g.fill(); }); }
@@ -537,12 +558,14 @@ function drawEagle(c){
     if(Math.abs(ex-lx)>6){ g.lineWidth=2; g.beginPath(); g.moveTo(Math.min(ex,lx),my); g.lineTo(Math.max(ex,lx),my); g.stroke();
       [Math.min(ex,lx),Math.max(ex,lx)].forEach((x,i)=>{ const d=i?-1:1; g.beginPath(); g.moveTo(x,my); g.lineTo(x+d*6,my-4); g.lineTo(x+d*6,my+4); g.closePath(); g.fillStyle='#16221B'; g.fill(); }); }
   }
+  g.restore();
   g.fillStyle='rgba(255,255,255,.92)'; g.fillRect(SZ/2-58,SZ-34,116,26);
   g.fillStyle=b.isIn?'#2F8F4E':'#C8402F'; g.font='800 18px "Barlow Condensed", sans-serif'; g.textAlign='center'; g.textBaseline='middle';
   g.fillText((b.isIn?'IN':'OUT')+' · '+Math.round(Math.abs(b.m)*1000)+' mm', SZ/2, SZ-21);
   g.textBaseline='alphabetic'; g.font='600 11px Barlow, sans-serif'; g.fillStyle='rgba(255,255,255,.9)';
-  g.textAlign='left'; g.fillText('COURT', 8, 16);
-  if(base) g.fillText('OUT', 8, SZ-8); else { g.textAlign='right'; g.fillText('OUT', SZ-8, 16); }
+  g.shadowColor='rgba(0,0,0,.6)'; g.shadowBlur=3;  // labels stay readable where they cross a white line
+  if(base){ g.textAlign='left'; g.fillText(b.view==='svc'?'SERVICE BOX':'COURT', 8, 16); g.fillText('OUT', 8, SZ-8); }
+  else { const [l,r]=b.flip?['OUT','COURT']:['COURT','OUT']; g.textAlign='left'; g.fillText(l, 8, 16); g.textAlign='right'; g.fillText(r, SZ-8, 16); }
 }
 
 
@@ -656,20 +679,24 @@ function sideCard(html){ // shows html; its #go button puts back exactly the car
   $('go').onclick=back;
 }
 // Top-down singles court, near baseline on the left; the judged line and the chair are highlighted.
-function seatDiagram(seat){
-  const k=5, x0=30, y0=50-SINGLES_W*k/2, len=FAR_BASE*k, wid=SINGLES_W*k, sv=(NET_Y-SVC1)*k, net=x0+NET_Y*k;
-  const judged = seat==='side' ? `<line x1="${x0}" y1="${y0+wid}" x2="${x0+len}" y2="${y0+wid}"/>` : `<line x1="${x0}" y1="${y0}" x2="${x0}" y2="${y0+wid}"/>`;
-  const chair = seat==='side' ? [x0+SEATS.side.y*k, y0+wid] : [x0+SEATS.base.y*k, 50];
-  return `<svg class="seatmap" viewBox="0 0 160 100" width="160" height="100" role="img" aria-label="Court diagram showing the ${SEATS[seat].name.toLowerCase()} judge's chair">
-    <rect x="${x0}" y="${y0}" width="${len}" height="${wid}" fill="var(--paper)" stroke="var(--muted)" stroke-width="1"/>
-    <g stroke="var(--muted)" stroke-width="1"><line x1="${net-sv}" y1="${y0}" x2="${net-sv}" y2="${y0+wid}"/><line x1="${net+sv}" y1="${y0}" x2="${net+sv}" y2="${y0+wid}"/><line x1="${net-sv}" y1="50" x2="${net+sv}" y2="50"/></g>
-    <line x1="${net}" y1="${y0-5}" x2="${net}" y2="${y0+wid+5}" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="2 2"/>
-    <g stroke="var(--navy)" stroke-width="3" stroke-linecap="round">${judged}</g>
-    <circle cx="${chair[0]}" cy="${chair[1]}" r="7" fill="var(--ball)" opacity=".5"/><circle cx="${chair[0]}" cy="${chair[1]}" r="4" fill="var(--navy)"/>
-  </svg><span class="hint">Your seat: ${SEATS[seat].name.toLowerCase()}</span>`;
+function seatDiagram(id){
+  const k=4.4, x0=28, wid=SINGLES_W*k, y0=50-wid/2, len=FAR_BASE*k, s=SEATS[id], V=VIEWS[s.view];
+  // world (x across, y along) -> diagram; the right singles sideline (x=0) is the bottom edge, near baseline on the left
+  const P=([x,y])=>[x0+y*k, y0+wid+x*k].map(v=>+v.toFixed(1));
+  const tf=([x,y])=>[s.flip||s.far ? -SINGLES_W-x : x, s.far ? FAR_BASE-y : y];  // mirror / 180-degree turn
+  const line = V.axis==='x' ? [[LINE_W/2,0],[LINE_W/2,FAR_BASE]] : [[-SINGLES_W,V.line+LINE_W/2],[0,V.line+LINE_W/2]];
+  const [a,b]=line.map(p=>P(tf(p))), [cx0,cy0]=P(tf(V.cam));
+  const ln=(p,q)=>{ const [u,v]=P(p),[w,z]=P(q); return `<line x1="${u}" y1="${v}" x2="${w}" y2="${z}"/>`; };
+  return `<svg class="seatmap" viewBox="0 0 160 100" width="160" height="100" role="img" aria-label="Court diagram showing the ${s.name.toLowerCase()} judge's chair">
+    <rect x="${x0}" y="${+y0.toFixed(1)}" width="${+len.toFixed(1)}" height="${+wid.toFixed(1)}" fill="var(--paper)" stroke="var(--muted)" stroke-width="1"/>
+    <g stroke="var(--muted)" stroke-width="1">${ln([-SINGLES_W,SVC1],[0,SVC1])}${ln([-SINGLES_W,SVC2],[0,SVC2])}${ln([CENTRE,SVC1],[CENTRE,SVC2])}</g>
+    <g stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="2 2">${ln([1,NET_Y],[-SINGLES_W-1,NET_Y])}</g>
+    <line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="var(--navy)" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="${cx0}" cy="${cy0}" r="7" fill="var(--ball)" opacity=".5"/><circle cx="${cx0}" cy="${cy0}" r="4" fill="var(--navy)"/>
+  </svg><span class="hint">Your seat: ${s.name.toLowerCase()}</span>`;
 }
 function previewSeat(seat){ S.seat=seat; S.call=0; newBall(); ball.vis=false; drawScene(performance.now()/1000); }
-function dailySeat(key){ return seeded('ctl-daily-seat-'+key)()<0.5 ? 'side' : 'base'; }  // own stream: the ball sequence is untouched
+function dailySeat(key){ return pickSeat(TIERS.length, seeded('ctl-daily-seat-'+key)()); }  // own stream: the ball sequence is untouched
 function rulesCard(){ sideCard(`<h2>Rules</h2>${RULES}<div class="row"><button class="btn" id="go">Back</button></div>`); }
 function statsCard(){
   const pct=ST.calls?Math.round(100*ST.correct/ST.calls):0, chip=(v,k)=>`<span class="chip"><b>${v}</b> ${k}</span>`;
@@ -696,7 +723,7 @@ function nextBadge(){
   setTimeout(nextBadge, 2400);
 }
 function startTournament(){
-  const T=TIERS[S.tier], seat=Math.random()<0.5?'side':'base'; S.call=0; S.over=0; hud();
+  const T=TIERS[S.tier], seat=pickSeat(S.tier, Math.random()); S.call=0; S.over=0; hud();
   $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
   S.phase='idle';
   card(`
@@ -831,7 +858,7 @@ function dailyExit(){ goHome(); }
 function goHome(){
   S.run++; cancelAnimationFrame(raf); clearTimeout(eagleTimer); resolved=true;
   if(S.mode==='career' && S.phase!=='end') saveBest();
-  S.mode='career'; S.seat='side'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; S.rescued=false; R=Math.random;
+  S.mode='career'; S.seat='sideline-right'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; S.rescued=false; R=Math.random;
   toast(''); $('quip').hidden=true; $('timer').style.width='0%'; setButtons(false);
   const T=TIERS[0]; $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
   newBall(); ball.vis=false;
