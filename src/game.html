@@ -793,7 +793,8 @@ document.addEventListener('keydown', e=>{
   const k=e.key.toLowerCase();
   if(e.key==='ArrowLeft'||k==='i') makeCall('in');
   else if(e.key==='ArrowRight'||k==='o') makeCall('out');
-  else if((e.key===' '||e.key==='Enter') && S.phase==='review'){ const n=$('nx'); if(n){ e.preventDefault(); n.click(); } }
+  // only once the review card is up: in the 0.7 s before it, #nx is still the previous card's hidden button
+  else if((e.key===' '||e.key==='Enter') && S.phase==='review' && !$('overlay').hidden){ const n=$('nx'); if(n){ e.preventDefault(); n.click(); } }
 });
 let homeArm=0;
 $('home').onclick=()=>{
