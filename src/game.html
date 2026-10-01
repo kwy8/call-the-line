@@ -128,6 +128,7 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-s
 footer button{appearance:none;border:0;background:none;color:var(--navy);font:inherit;text-decoration:underline;cursor:pointer;display:inline-block;min-height:44px;padding:13px 4px;margin:-13px -4px}
 footer button[disabled]{opacity:.4;text-decoration:none;cursor:default}
 footer button.confirm{color:var(--bad);font-weight:600}
+footer .legal a{color:inherit;text-decoration:underline;display:inline-block;min-height:44px;padding:13px 2px;margin:-13px -2px}  /* muted like the text, 44px tall to tap */
 .toast{position:absolute;left:0;right:0;top:44%;text-align:center;font-family:var(--display);font-weight:800;font-size:44px;line-height:1;text-transform:uppercase;letter-spacing:.06em;pointer-events:none;color:#fff;text-shadow:0 2px 0 rgba(0,0,0,.35),0 0 24px rgba(0,0,0,.35)}
 .toast small{display:block;font-size:20px;letter-spacing:.1em;margin-top:6px}
 @media (max-width:480px){
@@ -210,7 +211,7 @@ footer button.confirm{color:var(--bad);font-weight:600}
 
   <footer>
     <span id="homeWrap" hidden><button id="home" type="button">Home</button></span>
-    <span id="dims">Ball 6.7 cm · line 5 cm</span>
+    <span class="legal"><a href="/privacy.html">Privacy</a> · <a href="/privacy.html#impressum">Contact</a> · © 2026 Call the Line</span>
   </footer>
 </div>
 
@@ -1163,9 +1164,8 @@ $('mute').onclick=()=>{ S.muted=!S.muted; if(S.muted) cancelPock(); renderMute()
 renderMute();
 
 // ---------- Boot ----------
-function sportText(){ // call buttons and the footer's sizes, from SPORT
+function sportText(){ // the call buttons' words, from SPORT
   for(const [id,word] of [['btnIn',CALL.in],['btnOut',CALL.out]]){ const t=$(id).firstChild; if(t) t.nodeValue=word; }
-  $('dims').textContent=`Ball ${(BALL_R*200).toFixed(1)} cm · line ${Math.round(LINE_W*100)} cm`;
 }
 function start(){ booted=true; sportText(); hud(); setPitch(6); newBall(); ball.vis=false; drawScene(0); intro(); }
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start();

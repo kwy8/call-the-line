@@ -40,4 +40,6 @@ writeFileSync('www/index.html', doc);
 // the brand folder (icons, logo, link-preview image, font licence) goes alongside, as www/brand/
 rmSync('www/brand', { recursive: true, force: true });
 cpSync('src/brand', 'www/brand', { recursive: true });
-console.log('built www/index.html (' + doc.length + ' bytes) and www/brand/');
+// the privacy and Impressum page, copied unchanged
+cpSync('src/privacy.html', 'www/privacy.html');
+console.log('built www/index.html (' + doc.length + ' bytes), www/brand/ and www/privacy.html');

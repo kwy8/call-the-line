@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Privacy · Call the Line</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/brand/icon.svg">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@800&family=Barlow:wght@400;600&display=swap">
+<style>
+:root{--bg:#F3F5F0;--paper:#fff;--ink:#16221B;--muted:#5F6B63;--rule:#DCE1D8;--navy:#1F3A5F;color-scheme:light}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Barlow,"Helvetica Neue",Arial,sans-serif}
+.wrap{max-width:680px;margin:0 auto;padding:24px 16px 48px}
+header{display:flex;align-items:center;gap:12px;margin-bottom:28px}
+header a{display:inline-flex}
+header img{height:28px}
+h1{font:800 40px/1 "Barlow Condensed","Arial Narrow",sans-serif;text-transform:uppercase;margin:0 0 6px;color:var(--navy)}
+h2{font:800 24px/1.1 "Barlow Condensed","Arial Narrow",sans-serif;text-transform:uppercase;margin:32px 0 10px;color:var(--navy)}
+p,li{max-width:65ch}
+.muted{color:var(--muted)}
+.card{background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:14px 18px}
+table{border-collapse:collapse;width:100%;font-size:15px}
+td,th{text-align:left;vertical-align:top;padding:8px 10px 8px 0;border-bottom:1px solid var(--rule)}
+th{font-weight:600;white-space:nowrap}
+a{color:var(--navy)}
+code{font-size:14px;background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:1px 5px}
+footer{margin-top:40px;font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header><a href="/" aria-label="Call the Line home"><img src="/brand/logo.svg" alt="Call the Line"></a></header>
+
+<h1>Privacy</h1>
+<p class="muted">Last updated 1 October 2026 · <a href="#impressum">Impressum / contact</a></p>
+
+<p>Call the Line is a browser game. It has no accounts, no sign-up and no tracking across other websites. This page lists exactly what the game keeps and where.</p>
+
+<h2>On your device</h2>
+<p>The game saves a few things in your browser's local storage so they are there next time. Nothing in this list leaves your device.</p>
+<table>
+<tr><th>Best score</th><td>Your highest tournament score and how far you got.</td></tr>
+<tr><th>Stats and badges</th><td>Calls made, accuracy, reaction times, closest call, badges earned.</td></tr>
+<tr><th>Daily challenge</th><td>Which days you have played and your result, so a day can't be replayed.</td></tr>
+<tr><th>Settings</th><td>Sound on or off.</td></tr>
+<tr><th>Leaderboard name and id</th><td>The display name you chose and a random id that identifies your scores on the daily leaderboard. The id is random; it is not linked to you in any other way.</td></tr>
+</table>
+<p>You can clear all of it at any time by clearing site data for calltheline.site in your browser.</p>
+
+<h2>The daily leaderboard</h2>
+<p>If you play the daily challenge and choose a display name, the game sends your result to our leaderboard server so it can rank you against other players that day. For each daily entry the server stores:</p>
+<ul>
+<li>the date of the challenge,</li>
+<li>your display name (up to 16 characters, chosen by you),</li>
+<li>your random player id,</li>
+<li>your score, number of correct calls and average reaction time.</li>
+</ul>
+<p>Display names and scores are public: anyone playing that day's challenge sees the top of the board. Don't use your real name if you'd rather not. The server runs on Cloudflare Workers and keeps standard request logs (IP address, time, request) for a short period for abuse prevention and rate limiting; these are not joined to your scores. You can skip the leaderboard entirely by cancelling the name prompt; the daily still works, you just won't be ranked.</p>
+<p>To have your leaderboard entries removed, email the address below with your display name and the dates; we'll delete them.</p>
+
+<h2>Hosting and analytics</h2>
+<p>The site and the leaderboard are hosted by Cloudflare (Cloudflare, Inc., San Francisco, with EU data centres), which processes connection data such as IP addresses to deliver the site and protect it from abuse. See <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">Cloudflare's privacy policy</a>.</p>
+<p>We use Cloudflare Web Analytics to count visits. It is cookieless, does not fingerprint devices, and does not follow you to other sites.</p>
+
+<h2>Fonts</h2>
+<p>The game loads its typefaces from Google Fonts, which means your browser requests the font files from Google and Google sees your IP address in that request. See <a href="https://developers.google.com/fonts/faq/privacy" rel="noopener">Google Fonts privacy</a>.</p>
+
+<h2>Advertising</h2>
+<p>The web version at calltheline.site currently shows no ads. If the game is published on a game portal or in an app store, that version may show ads provided by the portal or by Google AdMob, and will say so in its own listing. In the EU you will be asked for consent before any personalised ad is shown.</p>
+
+<h2>Children</h2>
+<p>The game is suitable for all ages and collects no personal data beyond an optional display name. Please don't enter a real name or any other personal details as a display name.</p>
+
+<h2>Your rights</h2>
+<p>Under the GDPR you can ask what data we hold about you, have it corrected or deleted, and complain to a supervisory authority. Because the only data we hold server-side is leaderboard entries under a random id, the practical route is the email below with your display name. Legal basis for the leaderboard is your consent when you enter a name (Art. 6(1)(a) GDPR); for hosting and abuse prevention it is our legitimate interest in running the site securely (Art. 6(1)(f)).</p>
+
+<h2 id="impressum">Impressum / contact</h2>
+<div class="card">
+<p><strong>Angaben gemäß § 5 DDG</strong><br>
+X Kwan Wei Yen<br>
+Vaalser Str. 182<br>
+52074 Aachen<br>
+Germany</p>
+<p>Contact: <a href="mailto:wy@wyu-tech.com">wy@wyu-tech.com</a></p>
+<p class="muted" style="font-size:14px;margin:0">Responsible for content under § 18 Abs. 2 MStV: the person named above.</p>
+</div>
+
+<h2>Credits</h2>
+<p>Wordmark set in <a href="https://fonts.google.com/specimen/Anton" rel="noopener">Anton</a> (SIL Open Font License). Interface in Barlow. The game is built and maintained by Call the Line.</p>
+
+<footer>© 2026 Call the Line · <a href="/">Back to the game</a></footer>
+</div>
+</body>
+</html>
