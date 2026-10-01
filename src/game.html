@@ -98,6 +98,14 @@ input.name{font:inherit;font-size:18px;padding:10px 12px;border:2px solid var(--
 input.name:focus{outline:none;border-color:var(--navy)}
 .subhead{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:4px}
 .badge-toast{position:absolute;left:0;right:0;top:46px;display:flex;justify-content:center;pointer-events:none;z-index:2}
+.practice-panel{position:absolute;left:0;right:0;top:46px;display:flex;justify-content:center;pointer-events:none;z-index:2}
+.practice-panel span{background:rgba(255,255,255,.92);border:1px solid var(--rule);border-radius:999px;padding:3px 12px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--ink);box-shadow:0 1px 3px rgba(22,34,27,.12);white-space:nowrap}
+.practice-panel b{font-weight:600}
+.picker{display:block;width:150px;height:240px;touch-action:manipulation;cursor:pointer}
+.picker .chair:focus{outline:none} .picker .chair:focus-visible .dot{stroke:var(--ink);stroke-width:2}
+.levels{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
+.levels button{appearance:none;font:inherit;font-size:14px;font-weight:600;padding:9px 14px;min-height:40px;border-radius:999px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);cursor:pointer}
+.levels button[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:var(--navy-ink)}
 .badge-toast span{display:flex;align-items:center;gap:8px;background:var(--ink);color:var(--ball);border-radius:999px;padding:4px 14px 4px 4px;font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 2px 6px rgba(22,34,27,.25);max-width:calc(100% - 24px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chip b{font-family:var(--display);font-size:15px;font-weight:800}
 .tag{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:var(--navy);color:var(--navy-ink)}
@@ -191,10 +199,11 @@ footer .legal a{color:inherit;text-decoration:underline;display:inline-block;min
       <span class="prog" id="tProg">Clay</span>
     </div>
     <canvas id="court" width="720" height="480" aria-label="Line judge view of a tennis sideline"></canvas>
-    <div class="timer"><i id="timer"></i></div>
+    <div class="timer" id="timerTrack"><i id="timer"></i></div>
     <div class="toast" id="toast" hidden></div>
     <div class="overlay" id="overlay"><div class="card" id="card"></div></div>
     <div class="badge-toast" id="badgeToast" hidden aria-live="polite"></div>
+    <div class="practice-panel" id="practicePanel" hidden aria-live="polite"></div>
   </div>
 
   <div class="calls">
@@ -414,6 +423,7 @@ function drawScene(t){
   cx.fillStyle='rgba(255,255,255,.55)'; cx.font='800 7px "Barlow Condensed", sans-serif'; cx.textAlign='left';
   for(let x=-20;x<W;x+=120) cx.fillText('CALL THE LINE', x, hz-1.5);
   drawCourt(T, hz, ball ? ball.match : S.match, C);
+  if(replay && replay.mark) drawMark(ball);   // ghost replay: the bounce mark on the court
   // ball
   if(ball && ball.vis){
     const sh=proj(ball.x,ball.y,0), r0=FPX*BALL_R/Math.max(sh.d,0.2);
@@ -438,7 +448,11 @@ function drawScene(t){
   cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(0,H-16,W,2);
   cx.fillStyle='#D6E23A'; cx.font='800 10px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('LINE JUDGE · '+(ball?lineName(ball.seat,ball.match):lineName('sideline-right','singles')).toUpperCase(), 10, H-5);
   const total = S.mode==='daily' ? DAILY_N : T.calls;
-  cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(`CALL ${Math.min(S.call,total)} OF ${total}`, W-10, H-5);
+  cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(S.mode==='practice' ? `PRACTICE · BALL ${S.call}` : `CALL ${Math.min(S.call,total)} OF ${total}`, W-10, H-5);
+  if(replay){ // label the replay, top left
+    cx.fillStyle='rgba(22,34,27,.72)'; cx.fillRect(10,10,112,22);
+    cx.fillStyle='#D6E23A'; cx.font='800 12px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('REPLAY · ¼ SPEED', 18, 25);
+  }
 }
 function drawCourt(T, hz, match, cond){ // the whole doubles court, from any seat, in the match conditions
   const L=-SINGLES_W, BW=LINE_W, DL=L-ALLEY, DR=ALLEY+LINE_W, across=cam.yaw!==0;  // DL..DR: outer edges of the doubles sidelines
@@ -607,9 +621,10 @@ function loop(ts){
 function startPoint(){
   S.call++;
   if(S.mode==='daily'){ S.tier=DAILY_LEVELS[S.daily.level].tier; $('tSw').style.background=TIERS[S.tier].court; }
-  const T=TIERS[S.tier];
-  $('tProg').textContent = `${T.surf} · ${cap(S.match)} · call ${S.call} of ${S.mode==='daily'?DAILY_N:T.calls}`;
-  newBall(); callWindow=T.win; resolved=false;
+  const T=TIERS[S.tier], practice=S.mode==='practice';
+  $('tProg').textContent = practice ? `${T.surf} · Practice · ball ${S.call}` : `${T.surf} · ${cap(S.match)} · call ${S.call} of ${S.mode==='daily'?DAILY_N:T.calls}`;
+  newBall(); callWindow=practice ? Infinity : T.win; resolved=false;   // practice: no timer
+  $('timerTrack').style.visibility = practice ? 'hidden' : '';
   $('timer').style.width='100%'; setButtons(false); hideOverlay(); toast('');
   clearTimeout(quipTimer); $('quip').hidden=true;
   S.phase='flight'; tStart=performance.now(); cancelAnimationFrame(raf); raf=requestAnimationFrame(loop); hud();
@@ -621,7 +636,10 @@ function resolve(call, elapsed){
   resolved=true; S.phase='review'; setButtons(false);
   cancelAnimationFrame(raf); drawScene(performance.now()/1000);  // last frame; nothing moves under the cards
   const right = call!==null && (call==='in')===ball.isIn;
-  if(right){
+  if(S.mode==='practice'){ // no score, no strikes, no stats or badges: just the call and this session's tally
+    toast(call===null?'No call':CALL[call].toLowerCase(), right?'Correct':'Overruled');
+    practiceTally(right);
+  }else if(right){
     S.streak++;
     const mult=1+Math.min(4,Math.floor(S.streak/3))*0.5, speed=Math.round(100*Math.max(0,1-elapsed/callWindow));
     const pts=Math.round((100+speed)*mult); S.score+=pts;
@@ -631,14 +649,14 @@ function resolve(call, elapsed){
     toast(call===null?'No call':CALL[call].toLowerCase(), 'Overruled');
   }
   if(S.mode==='daily') dailyRecord(right, call===null ? null : elapsed);
-  updateStats(st=>{
+  if(S.mode!=='practice') updateStats(st=>{
     st.calls++; if(call!==null){ st.rtSum+=elapsed; st.rtN++; }
     if(right){ st.correct++; st.bestStreak=Math.max(st.bestStreak,S.streak); const mm=Math.abs(ball.m)*1000; if(st.closest===null||mm<st.closest) st.closest=mm; }
   });
   if(!right){ murmur(); quip('Player', pickQuote(), false); }
   else if(Math.abs(ball.m)<=0.005){ chime(); quip('Umpire', SPORT.umpire, true); }
   hud();
-  eagleTimer=setTimeout(()=>showEagle(right,call,elapsed), 700);
+  startReplay(()=>showEagle(right,call,elapsed));   // the ghost replay, then the Eagle-Eye review
 }
 let lastQuote=-1, quipTimer=0;
 function pickQuote(){ let i; do{ i=Math.floor(Math.random()*QUOTES.length); }while(i===lastQuote); lastQuote=i; return QUOTES[i]; }
@@ -648,6 +666,113 @@ function quip(who, line, ump){
 }
 function toast(big, small){ const el=$('toast'); el.innerHTML = big ? `${big}<small>${small||''}</small>` : ''; el.hidden=!big; }
 
+// ---------- Ghost replay ----------
+// After every call: the last half second of the ball's flight again at quarter speed, from the same seat, with the
+// bounce mark drawn on the court the moment it lands; held for 0.4 s, then the review card. Space, Enter or a tap
+// skips it. It replays the very ball that was called (same object, no random draws), so nothing about play changes.
+const REPLAY = { span:0.5, speed:0.25, hold:0.4 };
+let replay=null;   // { t0, wall, mark, markAt, raf, done }
+function startReplay(done){
+  stopReplay();
+  replay={ t0:Math.max(ball.t0, -REPLAY.span), wall:null, mark:false, markAt:0, raf:0, done };
+  trail=[];
+  const frame=ts=>{
+    if(!replay) return;
+    if(replay.wall===null) replay.wall=ts;
+    const t=replay.t0+(ts-replay.wall)/1000*REPLAY.speed;
+    if(t>=0 && !replay.mark){ replay.mark=true; replay.markAt=ts; toast(''); }   // touchdown: the mark appears, the result text clears
+    stepBall(Math.min(t,0));
+    if(replay.mark) ball.vis=false;               // the ball lifts away so the mark can be read
+    drawScene(ts/1000);
+    if(replay.mark && ts-replay.markAt>=REPLAY.hold*1000){ finishReplay(); return; }
+    replay.raf=requestAnimationFrame(frame);
+  };
+  replay.raf=requestAnimationFrame(frame);
+}
+function finishReplay(){ if(!replay) return; const done=replay.done; stopReplay(); done(); }
+function stopReplay(){ if(!replay) return; cancelAnimationFrame(replay.raf); replay=null; }
+// the bounce mark as the review measures it (length along the ball's travel, width across), on the ground plane
+function drawMark(b){
+  cx.beginPath();
+  for(let k=0;k<=32;k++){
+    const a=k/32*Math.PI*2, l=b.markL/2*Math.cos(a), w=MARK_W/2*Math.sin(a);
+    const q=proj(b.xL+l*b.ux-w*b.uy, b.yL+l*b.uy+w*b.ux, 0);
+    k ? cx.lineTo(q.sx,q.sy) : cx.moveTo(q.sx,q.sy);
+  }
+  cx.closePath(); cx.fillStyle='rgba(214,226,58,.6)'; cx.fill();
+  cx.lineWidth=1; cx.strokeStyle='#FFFFFF'; cx.stroke();
+}
+
+// ---------- Practice ----------
+// No timer, strikes or score; the player picks a seat and a level, then gets endless balls. The session's accuracy is
+// split by how far down the judged line the ball landed, from the judge's end. Nothing here touches stats, badges,
+// the best score or the daily.
+let practiceSeat='sideline-right', practiceLevel=0, PR=null;
+const PRACTICE_BANDS = [ { key:'near', name:'Near', max:4 }, { key:'mid', name:'Mid', max:8 }, { key:'far', name:'Far', max:Infinity } ];
+function landDistance(b){ return b.geo.axis==='x' ? b.yL : (b.geo.end+LINE_W)-b.xL; }   // metres along the line from the judge's end
+function practiceTally(right){
+  const d=landDistance(ball), band=PRACTICE_BANDS.find(x=>d<x.max).key;
+  PR[band].n++; if(right) PR[band].ok++;
+  practicePanel();
+}
+function practicePanel(){
+  const el=$('practicePanel'); el.hidden=false;
+  el.innerHTML=`<span title="Accuracy this session by landing distance down the line: near under 4 m, mid 4 to 8 m, far over 8 m">${PRACTICE_BANDS.map(x=>{
+    const t=PR[x.key]; return `${x.name} <b>${t.n?Math.round(100*t.ok/t.n)+'%':'–'}</b>${t.n?` (${t.ok}/${t.n})`:''}`; }).join(' · ')}</span>`;
+}
+// Court diagram with all six chairs to choose from (same layout as the intro cards' diagram, singles, scaled up)
+function seatPicker(selected){
+  const k=4.4, yB=132, L=-SINGLES_W, P=([x,y])=>[50+(x-CENTRE)*k, yB-y*k].map(v=>+v.toFixed(1));
+  const [rx,ry]=P([L-ALLEY,FAR_BASE]), [rx2,ry2]=P([ALLEY+LINE_W,0]);
+  const ln=(p,q)=>{ const [u,v]=P(p),[w,z]=P(q); return `<line x1="${u}" y1="${v}" x2="${w}" y2="${z}"/>`; };
+  const place=id=>{ const s=SEATS[id], V=seatGeom(s.view,'singles'), tf=([x,y])=>[s.flip||s.far ? -SINGLES_W-x : x, s.far ? FAR_BASE-y : y];
+    const line=V.axis==='x' ? [[V.line-LINE_W/2,0],[V.line-LINE_W/2,FAR_BASE]] : [[V.end+LINE_W/2,V.line+LINE_W/2],[V.end-V.len+LINE_W/2,V.line+LINE_W/2]];
+    return { line:line.map(p=>P(tf(p))), chair:P(tf(V.cam)) }; };
+  const sel=place(selected);
+  return `<svg class="picker" id="picker" viewBox="0 0 100 160" role="radiogroup" aria-label="Choose your chair">
+    <rect x="${rx}" y="${ry}" width="${+(rx2-rx).toFixed(1)}" height="${+(ry2-ry).toFixed(1)}" fill="var(--paper)" stroke="var(--muted)" stroke-width="1"/>
+    <g stroke="var(--muted)" stroke-width="1">${ln([0,0],[0,FAR_BASE])}${ln([L,0],[L,FAR_BASE])}${ln([L,SVC1],[0,SVC1])}${ln([L,SVC2],[0,SVC2])}${ln([CENTRE,SVC1],[CENTRE,SVC2])}</g>
+    <g stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="2 2">${ln([ALLEY+1,NET_Y],[L-ALLEY-1,NET_Y])}</g>
+    <line x1="${sel.line[0][0]}" y1="${sel.line[0][1]}" x2="${sel.line[1][0]}" y2="${sel.line[1][1]}" stroke="var(--navy)" stroke-width="3" stroke-linecap="round"/>
+    ${Object.keys(SEATS).map(id=>{ const [x,y]=place(id).chair, on=id===selected;
+      return `<g class="chair" data-seat="${id}" role="radio" tabindex="0" aria-checked="${on}" aria-label="${SEATS[id].name}">
+        ${on?`<circle cx="${x}" cy="${y}" r="7" fill="var(--ball)" opacity=".6"/>`:''}
+        <circle class="dot" cx="${x}" cy="${y}" r="4.5" fill="${on?'var(--navy)':'var(--paper)'}" stroke="var(--navy)" stroke-width="1.5"/></g>`; }).join('')}
+  </svg>`;
+}
+function practiceCard(){
+  S.phase='idle';
+  card(`
+    <span class="tag">Practice</span>
+    <h2>Pick your chair</h2>
+    ${seatPicker(practiceSeat)}
+    <span class="hint">${SEATS[practiceSeat].name}: you judge the ${lineName(practiceSeat,'singles')}</span>
+    <div class="levels" role="radiogroup" aria-label="Level">${DAILY_LEVELS.map((l,i)=>`<button type="button" data-level="${i}" aria-pressed="${i===practiceLevel}">${l.name}</button>`).join('')}</div>
+    <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
+    <span class="hint">No timer, no score. Nothing here counts towards your stats.</span>
+  `);
+  const pick=id=>{ practiceSeat=id; practiceCard(); const c=document.querySelector(`#picker [data-seat="${id}"]`); if(c) c.focus(); };
+  // a tap picks the nearest chair, so chairs that sit close together are still easy to hit
+  $('picker').addEventListener('click', e=>{
+    const svg=$('picker'), m=svg.getScreenCTM(); if(!m) return;
+    const pt=new DOMPoint(e.clientX,e.clientY).matrixTransform(m.inverse());
+    let best=null, bd=Infinity;
+    for(const g of svg.querySelectorAll('.chair')){ const c=g.querySelector('.dot'), d=Math.hypot(c.cx.baseVal.value-pt.x, c.cy.baseVal.value-pt.y); if(d<bd){ bd=d; best=g.dataset.seat; } }
+    if(best && bd<24) pick(best);
+  });
+  for(const g of document.querySelectorAll('#picker .chair')) g.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); pick(g.dataset.seat); } });
+  for(const b of document.querySelectorAll('.levels button')) b.onclick=()=>{ practiceLevel=+b.dataset.level; practiceCard(); };
+  $('go').onclick=practiceStart;
+  $('back').onclick=()=>intro();
+}
+function practiceStart(){
+  S.mode='practice'; S.seat=practiceSeat; S.match='singles'; S.cond='day'; S.tier=DAILY_LEVELS[practiceLevel].tier;
+  S.call=0; S.score=0; S.streak=0; S.over=0; R=Math.random;
+  PR=Object.fromEntries(PRACTICE_BANDS.map(x=>[x.key,{ ok:0, n:0 }]));
+  $('tName').textContent=`Practice · ${DAILY_LEVELS[practiceLevel].name}`; $('tSw').style.background=TIERS[S.tier].court;
+  practicePanel(); startPoint();
+}
+
 // ---------- Eagle-Eye review ----------
 function showEagle(right, call, elapsed){
   const T=TIERS[S.tier], b=ball, mm=Math.round(Math.abs(b.m)*1000);
@@ -656,7 +781,7 @@ function showEagle(right, call, elapsed){
   const dist = b.view==='side' ? b.yL : Math.hypot(b.xL-cam.x, b.yL-cam.y);
   const yours = call===null ? `No call in ${callWindow} s` : `Your call: <b>${CALL[call].toUpperCase()}</b> in ${elapsed.toFixed(2)} s`;
   const last=S.call>=T.calls, sacked=S.over>=3;
-  const label = S.mode==='daily' ? (S.call>=DAILY_N?'Results':'Next call') : sacked?'Continue':last?(S.tier<TIERS.length-1?'Promotion':'Finish'):'Next call';
+  const label = S.mode==='practice' ? 'Next ball' : S.mode==='daily' ? (S.call>=DAILY_N?'Results':'Next call') : sacked?'Continue':last?(S.tier<TIERS.length-1?'Promotion':'Finish'):'Next call';
   card(`
     <span class="tag ${right?'good':'bad'}">${right?'Good call':'Overruled'}</span>
     <div class="eagle">
@@ -676,6 +801,7 @@ function showEagle(right, call, elapsed){
 }
 function nextStep(){
   if(S.phase!=='review') return;  // a double tap or Space+click must not skip a ball
+  if(S.mode==='practice'){ startPoint(); return; }   // endless balls
   if(S.mode==='daily'){ S.call>=DAILY_N ? dailyResults() : startPoint(); return; }
   const T=TIERS[S.tier];
   S.over>=3 ? gameOver() : (S.call>=T.calls ? endTournament() : startPoint());
@@ -817,7 +943,7 @@ function intro(){
     </div>
     <div class="start">
       <button class="btn big" id="go">Play</button>
-      <button class="btn ghost small" id="daily">Daily challenge${dr?` · ${dr.results.filter(Boolean).length}/${DAILY_N}`:''}</button>
+      <div class="row"><button class="btn ghost small" id="daily">Daily challenge${dr?` · ${dr.results.filter(Boolean).length}/${DAILY_N}`:''}</button><button class="btn ghost small" id="practice">Practice</button></div>
       <button class="linkbtn" id="rulesLink" type="button">Rules</button>
     </div>
     ${S.best?`<span class="hint">Best: ${S.best.toLocaleString()} pts · ${TIERS[Math.min(S.bestTier,TIERS.length-1)].name}</span>`:''}
@@ -826,6 +952,7 @@ function intro(){
   $('homeWrap').hidden=true;
   $('go').onclick=()=>{ S.mode='career'; S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); };
   $('daily').onclick=()=> dailyLoad() ? dailyResults() : dailyIntro();
+  $('practice').onclick=practiceCard;
 }
 function sideCard(html){ // shows html; its #go button puts back exactly the card that was showing
   const c=$('card'), saved=document.createDocumentFragment();
@@ -1102,10 +1229,10 @@ function dailyExit(){ goHome(); }
 // Back to the start screen from anywhere: stop the ball, drop any pending review, reset the run.
 // A career run's score still counts towards the best; a daily attempt stays used.
 function goHome(){
-  S.run++; cancelAnimationFrame(raf); clearTimeout(eagleTimer); cancelPock(); resolved=true;
+  S.run++; cancelAnimationFrame(raf); clearTimeout(eagleTimer); cancelPock(); stopReplay(); resolved=true;
   if(S.mode==='career' && S.phase!=='end') saveBest();
   S.mode='career'; S.seat='sideline-right'; S.match='singles'; S.cond='day'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; S.rescued=false; R=Math.random;
-  toast(''); $('quip').hidden=true; $('timer').style.width='0%'; setButtons(false);
+  toast(''); $('quip').hidden=true; $('timer').style.width='0%'; $('timerTrack').style.visibility=''; $('practicePanel').hidden=true; setButtons(false);
   const T=TIERS[0]; $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
   newBall(); ball.vis=false;
   hud(); drawScene(performance.now()/1000); intro();
@@ -1123,11 +1250,12 @@ function saveBest(){
   hud();
 }
 function hud(){
-  $('score').textContent=S.score.toLocaleString(); $('streak').textContent=S.streak; $('best').textContent=S.best.toLocaleString();
+  const practice=S.mode==='practice';   // practice keeps no score or streak, and counts balls without a total
+  $('score').textContent=practice?'–':S.score.toLocaleString(); $('streak').textContent=practice?'–':S.streak; $('best').textContent=S.best.toLocaleString();
   // this call out of the tournament's (or the daily's) total, counting the ball in play; a dash before the first call
-  $('callNo').textContent = S.call ? `${S.call}/${S.mode==='daily'?DAILY_N:TIERS[S.tier].calls}` : '–';
+  $('callNo').textContent = !S.call ? '–' : practice ? String(S.call) : `${S.call}/${S.mode==='daily'?DAILY_N:TIERS[S.tier].calls}`;
   [...$('strikes').children].forEach((i,k)=>i.classList.toggle('hit',k<S.over));
-  $('strikes').parentElement.hidden = S.mode==='daily';
+  $('strikes').parentElement.hidden = S.mode==='daily' || practice;
 }
 function card(html){ $('card').innerHTML=html; $('overlay').hidden=false; $('homeWrap').hidden=false; }
 function hideOverlay(){ $('overlay').hidden=true; }
@@ -1135,17 +1263,20 @@ function hideOverlay(){ $('overlay').hidden=true; }
 // ---------- Input ----------
 $('btnIn').addEventListener('pointerdown', e=>{ e.preventDefault(); makeCall('in'); });
 $('btnOut').addEventListener('pointerdown', e=>{ e.preventDefault(); makeCall('out'); });
+// a tap on the court skips the ghost replay
+$('court').addEventListener('pointerdown', ()=>{ if(replay) finishReplay(); });
 document.addEventListener('keydown', e=>{
   if(e.repeat) return;
   const k=e.key.toLowerCase();
   if(e.key==='ArrowLeft'||k==='i') makeCall('in');
   else if(e.key==='ArrowRight'||k==='o') makeCall('out');
   // only once the review card is up: in the 0.7 s before it, #nx is still the previous card's hidden button
+  else if((e.key===' '||e.key==='Enter') && replay){ e.preventDefault(); finishReplay(); }   // skip the ghost replay
   else if((e.key===' '||e.key==='Enter') && S.phase==='review' && !$('overlay').hidden){ const n=$('nx'); if(n){ e.preventDefault(); n.click(); } }
 });
 let homeArm=0;
 $('home').onclick=()=>{
-  const midRun = S.phase==='flight'||S.phase==='window'||S.phase==='review'||(S.phase==='idle'&&(S.score>0||S.tier>0));
+  const midRun = S.mode!=='practice' && (S.phase==='flight'||S.phase==='window'||S.phase==='review'||(S.phase==='idle'&&(S.score>0||S.tier>0)));  // practice: leave at once
   const el=$('home');
   if(midRun && !homeArm){ el.textContent='Quit run? Tap again'; el.classList.add('confirm'); homeArm=setTimeout(disarmHome,3000); return; }
   disarmHome(); goHome();
