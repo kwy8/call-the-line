@@ -1,0 +1,19 @@
+# Call the Line daily leaderboard Worker. Deploy steps are in the README ("Daily leaderboard").
+name = "call-the-line-api"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Serves https://api.calltheline.site; needs the calltheline.site zone in the same Cloudflare account.
+# Without it, delete this block and use the workers.dev URL that `wrangler deploy` prints as API_BASE in src/game.html.
+routes = [
+  { pattern = "api.calltheline.site", custom_domain = true }
+]
+
+[vars]
+# Origin allowed to call the API from a browser; "*" allows any (the game is also served from Capacitor apps).
+ALLOWED_ORIGIN = "*"
+
+[[kv_namespaces]]
+binding = "LEADERBOARD"
+# Replace with the id printed by: npx wrangler kv namespace create LEADERBOARD
+id = "REPLACE_WITH_KV_NAMESPACE_ID"

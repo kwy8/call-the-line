@@ -8,9 +8,10 @@
 //   - balls in the doubles alley are out in a singles match and in in a doubles match (and both cases occur)
 //   - a baseline or service-line ball lands inside the judged length without touching a sideline
 //   - the landing spot and the judged line are on screen
-// and that the daily challenge gives identical balls, seat, match type and level for the same date, plays every ball
+// that the leaderboard Worker's score bounds match the game's real scoring, and that the daily challenge gives identical balls, seat, match type and level for the same date, plays every ball
 // at its level's tier, and still produces the frozen DAILY_FIXTURE for 2026-10-01 below. Exits 1 on any failure.
 import { readFileSync } from 'node:fs';
+import { maxScore, minScore, BALLS } from '../worker/src/index.js';
 
 const BALLS_PER_SEAT_AND_TIER = 300;
 
@@ -120,6 +121,24 @@ for (let tier = 0; tier < 5; tier++) {
   const offered = new Set(Array.from({ length: 1000 }, (_, i) => g.pickCond(tier, i / 1000)));
   check(offered.has('damp') === (TIERS[tier].surf === 'Grass'), `tier ${tier} (${TIERS[tier].surf}): damp grass ${offered.has('damp') ? 'offered' : 'not offered'}`);
   for (const c of ['day', 'late', 'night']) check(offered.has(c), `tier ${tier}: condition ${c} never offered`);
+}
+
+// ---------- scoring vs the leaderboard Worker's bounds ----------
+// The Worker rejects scores outside [minScore(c), maxScore(c)] for c correct calls. Play the game's own resolve():
+// c correct calls in a row at full speed must hit maxScore(c) exactly, and random dailies must stay inside the bounds.
+{
+  const s = boot('2026-09-30T10:00:00', 11), rnd = mulberry32(42);
+  const play = calls => { s.S.mode = 'career'; s.S.score = 0; s.S.streak = 0;
+    for (const [right, elapsed] of calls) { s.S.call = 1; s.newBall(); s.S.phase = 'window'; s.resolve((right === s.ball.isIn) ? 'in' : 'out', elapsed); }  // the right call is 'in' exactly when the ball is in
+    return s.S.score; };
+  for (let c = 0; c <= BALLS; c++) {
+    const got = play(Array.from({ length: BALLS }, (_, i) => [i < c, 0]));
+    check(got === maxScore(c), `scoring: ${c} correct in a row at full speed scores ${got}, Worker maximum is ${maxScore(c)}`);
+  }
+  for (let run = 0; run < 500; run++) {
+    const calls = Array.from({ length: BALLS }, () => [rnd() < 0.7, rnd() * 2.5]), c = calls.filter(x => x[0]).length, got = play(calls);
+    check(got >= minScore(c) && got <= maxScore(c), `scoring: random daily with ${c} correct scored ${got}, outside the Worker's ${minScore(c)}-${maxScore(c)}`);
+  }
 }
 
 // ---------- daily seed: same date, same balls ----------

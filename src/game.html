@@ -87,6 +87,15 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:pan
 .badge-cell.locked{color:var(--muted);font-weight:400}
 .badge-cell.locked svg{filter:grayscale(1);opacity:.4}
 .seatmap{display:block;width:100px;height:160px;margin-bottom:-4px}
+.board{display:flex;flex-direction:column;align-items:center;gap:6px;width:100%}
+.rankline{font-size:14px}
+.lb{list-style:none;margin:0;padding:0;width:100%;max-width:300px;font-size:13px;line-height:1.35;font-variant-numeric:tabular-nums}
+.lb li{display:grid;grid-template-columns:2.2em 1fr auto;gap:6px;padding:1px 8px;border-radius:4px;text-align:left}
+.lb li:nth-child(odd){background:var(--paper)}
+.lb li.me{background:var(--ball);font-weight:600}
+.lb .r{color:var(--muted)} .lb .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+input.name{font:inherit;font-size:18px;padding:10px 12px;border:2px solid var(--rule);border-radius:6px;width:100%;max-width:260px;background:var(--paper);color:var(--ink)}
+input.name:focus{outline:none;border-color:var(--navy)}
 .subhead{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:4px}
 .badge-toast{position:absolute;left:0;right:0;top:46px;display:flex;justify-content:center;pointer-events:none;z-index:2}
 .badge-toast span{display:flex;align-items:center;gap:8px;background:var(--ink);color:var(--ball);border-radius:999px;padding:4px 14px 4px 4px;font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 2px 6px rgba(22,34,27,.25);max-width:calc(100% - 24px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -188,6 +197,8 @@ footer button.confirm{color:var(--bad);font-weight:600}
 <script>
 (function(){
 'use strict';
+// Daily leaderboard API: the Cloudflare Worker in worker/. The game is fully playable when it can't be reached.
+const API_BASE = 'https://api.calltheline.site';
 // ---------- Tournament ladder ----------
 const TIERS = [
   {name:'Riverside Club Open',  short:'Club',   surf:'Clay',       calls:10, court:'#C6673C', out:'#B65C34', line:'#F3EDE4', stands:'#CFC7BB', speed:[20,25], near:[2.5,5.5],  margin:[0.02,0.12],  win:2.0,  angle:0.05},
@@ -545,7 +556,7 @@ function resolve(call, elapsed){
     S.streak=0; if(S.mode!=='daily') S.over++;
     toast(call===null?'No call':call, 'Overruled');
   }
-  if(S.mode==='daily') dailyRecord(right);
+  if(S.mode==='daily') dailyRecord(right, call===null ? null : elapsed);
   updateStats(st=>{
     st.calls++; if(call!==null){ st.rtSum+=elapsed; st.rtN++; }
     if(right){ st.correct++; st.bestStreak=Math.max(st.bestStreak,S.streak); const mm=Math.abs(ball.m)*1000; if(st.closest===null||mm<st.closest) st.closest=mm; }
@@ -899,8 +910,10 @@ function dailyIntro(){
     <div class="chips"><span class="chip"><b>${lv.name}</b> level</span><span class="chip">up to <b>${Math.round(T.speed[1]*3.6)}</b> km/h</span><span class="chip"><b>${T.win}</b> s to call</span><span class="chip"><b>${CONDITIONS[cond].name}</b></span></div>
     ${seatDiagram(seat, match)}
     <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
+    <button class="linkbtn" id="lb" type="button">Leaderboard</button>
   `);
-  $('go').onclick=dailyStart;
+  $('go').onclick=()=> player() ? dailyStart() : nameCard(dailyStart);
+  $('lb').onclick=()=>leaderboardCard(key);
   $('back').onclick=dailyExit;
 }
 function dailyStart(){
@@ -913,7 +926,83 @@ function dailyStart(){
   $('tName').textContent=`Daily #${n}`; hud();
   startPoint();
 }
-function dailyRecord(right){ S.daily.results.push(right); S.daily.pts=S.score; dailySave(); }
+function dailyRecord(right, elapsed){
+  S.daily.results.push(right); S.daily.pts=S.score;
+  if(elapsed!==null){ S.daily.rtSum=(S.daily.rtSum||0)+elapsed; S.daily.rtN=(S.daily.rtN||0)+1; }  // call times, for the leaderboard tie-break
+  dailySave();
+}
+// ---------- Daily leaderboard ----------
+// The player is a random id plus an optional display name, kept in localStorage. Every request has a 6 s timeout and
+// every failure falls back to a message, so nothing in play ever waits on the network.
+function player(){ try{ const p=JSON.parse(localStorage.getItem('ctl.player')); if(p && /^[a-z0-9]{16,40}$/.test(p.id)) return p; }catch(e){} return null; }
+function savePlayer(p){ try{ localStorage.setItem('ctl.player', JSON.stringify(p)); }catch(e){} }
+function newPlayerId(){
+  const a=new Uint8Array(12);
+  if(window.crypto && crypto.getRandomValues) crypto.getRandomValues(a); else for(let i=0;i<a.length;i++) a[i]=Math.floor(Math.random()*256);
+  return [...a].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function cleanName(raw){ // same rules as the Worker: no control or invisible characters, at most 16 characters
+  const t=String(raw??'').replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu,'').replace(/\s+/g,' ').trim();
+  return [...t].slice(0,16).join('').trim();
+}
+const esc = t => String(t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ordinal = n => n + (n%100>=11 && n%100<=13 ? 'th' : ['th','st','nd','rd'][n%10] || 'th');
+async function api(path, body){
+  if(typeof fetch!=='function') throw new Error('no network');
+  const ctl = typeof AbortController==='function' ? new AbortController() : null, timer=setTimeout(()=>ctl && ctl.abort(), 6000);
+  try{
+    const res=await fetch(API_BASE+path, body ? { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body), signal:ctl?.signal } : { signal:ctl?.signal });
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    return await res.json();
+  } finally { clearTimeout(timer); }
+}
+function topList(top, myRank){
+  if(!top.length) return '<span class="hint">No scores yet today. Be the first.</span>';
+  return `<ol class="lb" aria-label="Top 10 today">${top.slice(0,10).map(e=>
+    `<li class="${e.rank===myRank?'me':''}"><span class="r">${e.rank}</span><span class="n">${esc(e.name)}</span><b>${Number(e.score).toLocaleString()}</b></li>`).join('')}</ol>`;
+}
+const LB_DOWN = 'The leaderboard is unavailable right now. Your result is saved on this device.';
+// Asked once, before the first daily. "Play without" keeps the player off the leaderboard.
+function nameCard(then){
+  const p=player()||{ id:newPlayerId(), name:null };
+  card(`
+    <span class="tag">Daily leaderboard</span>
+    <h2>Pick a display name</h2>
+    <p>It is shown with your score on today's public leaderboard.</p>
+    <input class="name" id="pname" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="Your name" aria-label="Display name" value="${esc(p.name||'')}">
+    <div class="row"><button class="btn" id="go">Save and play</button><button class="btn ghost small" id="skip">Play without</button></div>
+    <span class="hint" id="nameMsg"></span>
+  `);
+  const save=()=>{ const n=cleanName($('pname').value); if(!n){ $('nameMsg').textContent='Type a name, or play without one.'; $('pname').focus(); return; }
+    savePlayer({ id:p.id, name:n }); then(); };
+  $('go').onclick=save; $('pname').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); save(); } };
+  $('skip').onclick=()=>{ savePlayer({ id:p.id, name:null }); then(); };
+  $('pname').focus();
+}
+function leaderboardCard(day){
+  sideCard(`<h2>Today's leaderboard</h2><div class="board" id="board"><span class="hint">Loading…</span></div><div class="row"><button class="btn" id="go">Back</button></div>`);
+  api(`/daily/top?day=${day}`).then(t=>{ const el=$('board'); if(el) el.innerHTML=topList(t.top, null) + `<span class="hint">${t.total.toLocaleString()} played today</span>`; })
+    .catch(()=>{ const el=$('board'); if(el) el.innerHTML=`<span class="hint">The leaderboard is unavailable right now.</span>`; });
+}
+// After the daily: submit (the Worker keeps only the first score per player per day, so re-sending is harmless),
+// then show the rank and today's top 10.
+async function showBoard(r, correct){
+  const p=player(), el=()=>$('board');
+  try{
+    let rank=null, total=null, top=null;
+    if(p && p.name){
+      const res=await api('/daily/score', { day:r.key, id:p.id, name:p.name, score:r.pts||0, correct,
+        avgMs: r.rtN ? Math.min(5000, Math.round(r.rtSum/r.rtN*1000)) : 0 });
+      rank=res.rank; total=res.total; top=res.top;  // the submit returns a fresh top 10; /daily/top may be cached
+    }
+    if(!top) top=(await api(`/daily/top?day=${r.key}`)).top;
+    if(!el()) return;
+    el().innerHTML = (rank ? `<span class="rankline">You're <b>${ordinal(rank)}</b> of ${total.toLocaleString()} today</span>`
+                           : `<span class="hint">You're not on the leaderboard. <button class="linkbtn" id="joinLb" type="button">Add a name</button></span>`)
+                   + topList(top, rank);
+    if($('joinLb')) $('joinLb').onclick=()=>nameCard(dailyResults);
+  }catch(e){ if(el()) el().innerHTML=`<span class="hint">${LB_DOWN}</span>`; }
+}
 function dailyResults(){
   S.phase='end'; R=Math.random;
   const r=dailyLoad()||S.daily, correct=r.results.filter(Boolean).length;
@@ -925,6 +1014,7 @@ function dailyResults(){
     <div class="chips"><span class="chip"><b>${level}</b> level</span><span class="chip"><b>${acc}%</b> accuracy</span><span class="chip"><b>${(r.pts||0).toLocaleString()}</b> pts</span></div>
     <div class="dots" aria-label="Call by call results">${dots}</div>
     ${played<DAILY_N?`<span class="hint">Stopped after ${played} of ${DAILY_N}. The rest count as missed.</span>`:''}
+    <div class="board" id="board"><span class="hint">Checking today's leaderboard…</span></div>
     <div class="row"><button class="btn" id="share">Copy result</button><button class="btn ghost" id="back">Back</button></div>
     <span class="hint" id="shareMsg">Next daily in ${untilMidnight()}</span>
   `);
@@ -933,6 +1023,7 @@ function dailyResults(){
     copyText(`Call the Line daily #${r.n} · ${level} · ${correct}/${DAILY_N}\n${grid}\n${location.href.split('#')[0]}`);
   };
   $('back').onclick=dailyExit;
+  showBoard(r, correct);
 }
 function dailyExit(){ goHome(); }
 // Back to the start screen from anywhere: stop the ball, drop any pending review, reset the run.
