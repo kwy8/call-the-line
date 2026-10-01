@@ -44,6 +44,7 @@ function boot(date, seed = 1) {
   const els = {};
   const el = id => els[id] || (els[id] = { id, style: {}, hidden: false, disabled: false, textContent: '', innerHTML: '', children: [],
     classList: { toggle: noop, add: noop, remove: noop }, parentElement: { hidden: false }, addEventListener: noop, focus: noop,
+    setAttribute: noop, getAttribute: () => null, removeAttribute: noop,
     getContext: () => ctx, getBoundingClientRect: () => ({ width: 720, height: 480 }), width: 0, height: 0 });
   const RealDate = Date;
   class FakeDate extends RealDate { constructor(...a) { super(...(a.length ? a : [date])); } static now() { return new RealDate(date).getTime(); } }

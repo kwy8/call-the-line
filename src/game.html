@@ -81,12 +81,15 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:pan
 .rules span{font-size:15px}
 .chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
 .chip{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--paper);border:1px solid var(--rule);font-variant-numeric:tabular-nums}
-.chip.badge{color:var(--muted);opacity:.55}
-.chip.badge.got{color:var(--good);border-color:var(--good);opacity:1;font-weight:600}
+.badges{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 6px;width:100%;max-width:300px}
+.badge-cell{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;line-height:1.2;text-align:center;color:var(--ink);font-weight:600}
+.badge-cell svg{display:block}
+.badge-cell.locked{color:var(--muted);font-weight:400}
+.badge-cell.locked svg{filter:grayscale(1);opacity:.4}
 .seatmap{display:block;width:100px;height:160px;margin-bottom:-4px}
 .subhead{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:4px}
 .badge-toast{position:absolute;left:0;right:0;top:46px;display:flex;justify-content:center;pointer-events:none;z-index:2}
-.badge-toast span{background:var(--ink);color:var(--ball);border-radius:999px;padding:6px 14px;font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 2px 6px rgba(22,34,27,.25);max-width:calc(100% - 24px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge-toast span{display:flex;align-items:center;gap:8px;background:var(--ink);color:var(--ball);border-radius:999px;padding:4px 14px 4px 4px;font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 2px 6px rgba(22,34,27,.25);max-width:calc(100% - 24px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chip b{font-family:var(--display);font-size:15px;font-weight:800}
 .tag{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:var(--navy);color:var(--navy-ink)}
 .tag.bad{background:var(--bad)} .tag.good{background:var(--good)}
@@ -108,6 +111,10 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:pan
 .ladder .st span{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
 .ladder .st.now span{color:var(--ink);font-weight:600}
 .ladder .ln{flex:1;height:2px;background:var(--rule);margin-bottom:16px}
+.tools{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.btn.tool{display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding-inline:6px;font-size:19px}
+.btn.tool svg{flex:none;width:18px;height:18px}
+.btn.tool[disabled]{opacity:.4;cursor:default}
 footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 footer button{appearance:none;border:0;background:none;color:var(--navy);font:inherit;text-decoration:underline;cursor:pointer;display:inline-block;min-height:44px;padding:13px 4px;margin:-13px -4px}
 footer button[disabled]{opacity:.4;text-decoration:none;cursor:default}
@@ -166,8 +173,14 @@ footer button.confirm{color:var(--bad);font-weight:600}
     <button class="call out" id="btnOut" disabled>Out<small>→ / O</small></button>
   </div>
 
+  <div class="tools">
+    <button class="btn ghost tool" id="rulesBtn" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><circle cx="3.5" cy="5" r="1.6"/><circle cx="3.5" cy="10" r="1.6"/><circle cx="3.5" cy="15" r="1.6"/></g><g stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7.5 5h10M7.5 10h10M7.5 15h10"/></g></svg>Rules</button>
+    <button class="btn ghost tool" id="statsBtn" type="button"><svg viewBox="0 0 20 20" aria-hidden="true" fill="currentColor"><rect x="2" y="11" width="4" height="7" rx="1"/><rect x="8" y="6" width="4" height="12" rx="1"/><rect x="14" y="2" width="4" height="16" rx="1"/></svg>Stats</button>
+    <button class="btn ghost tool" id="mute" type="button" aria-pressed="false"></button>
+  </div>
+
   <footer>
-    <span><span id="homeWrap" hidden><button id="home" type="button">Home</button> · </span><button id="rulesBtn" type="button">Rules</button> · <button id="statsBtn" type="button">Stats</button> · <button id="mute" type="button">Sound: on</button></span>
+    <span id="homeWrap" hidden><button id="home" type="button">Home</button></span>
     <span>Ball 6.7 cm · line 5 cm</span>
   </footer>
 </div>
@@ -235,8 +248,28 @@ const BADGES = [
   { id:'slam',    name:'Grand Slam champion', tip:'Survive all five tournaments',              got:s=>s.champion>0 },
   { id:'dailies', name:'Seven dailies',       tip:'Play seven daily challenges',               got:s=>s.dailies>=7 },
 ];
+// Badge emblems: a pictogram on a round navy medallion, drawn at any size
+function emblem(id, size){
+  const Y='var(--ball)', Wt='#F4F6F1';
+  const art = {
+    ten: Array.from({length:10},(_,i)=>`<circle cx="${(10.9+i*3.8).toFixed(1)}" cy="28" r="1.6" fill="${Y}"/>`).join(''),
+    five: `<rect x="31" y="13" width="3.5" height="30" fill="${Wt}"/><circle cx="21.5" cy="29" r="7.5" fill="${Y}"/>
+      <path d="M29 11v5M31 11v5M29 13.5h2" stroke="${Wt}" stroke-width="1" fill="none"/>`,
+    // laurel: two branches of slanted leaves rising from crossed stems, open at the top
+    perfect: `<path d="M22 44l12-3M34 44l-12-3" stroke="${Y}" stroke-width="1.6" stroke-linecap="round"/>` + [118,140,162,184,206,228].map(t=>{
+      const r=t*Math.PI/180, x=+(28+13*Math.cos(r)).toFixed(1), y=29+13*Math.sin(r), a=t+60, X=(56-x).toFixed(1);
+      return `<ellipse cx="${x}" cy="${y.toFixed(1)}" rx="2" ry="4.6" transform="rotate(${a} ${x} ${y.toFixed(1)})" fill="${Y}"/>`
+        + `<ellipse cx="${X}" cy="${y.toFixed(1)}" rx="2" ry="4.6" transform="rotate(${-a} ${X} ${y.toFixed(1)})" fill="${Y}"/>`; }).join(''),
+    slam: `<path d="M19 14h18v6a9 9 0 0 1-18 0z" fill="${Y}"/><path d="M19 17h-3.5a4 4 0 0 0 4.5 6M37 17h3.5a4 4 0 0 1-4.5 6" fill="none" stroke="${Y}" stroke-width="2"/>
+      <rect x="26" y="28" width="4" height="7" fill="${Y}"/><rect x="20.5" y="35" width="15" height="4.5" rx="1" fill="${Y}"/>`,
+    dailies: `<rect x="15" y="16" width="26" height="25" rx="3" fill="${Wt}"/><path d="M15 23v-4a3 3 0 0 1 3-3h20a3 3 0 0 1 3 3v4z" fill="${Y}"/>
+      <rect x="20" y="12.5" width="2.5" height="6" rx="1" fill="${Wt}"/><rect x="33.5" y="12.5" width="2.5" height="6" rx="1" fill="${Wt}"/>
+      <text x="28" y="38.5" text-anchor="middle" font-family="Barlow Condensed, Arial Narrow, sans-serif" font-weight="800" font-size="15" fill="var(--navy)">7</text>`,
+  }[id];
+  return `<svg viewBox="0 0 56 56" width="${size}" height="${size}" aria-hidden="true"><circle cx="28" cy="28" r="27" fill="var(--navy)"/><circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="1.5"/>${art}</svg>`;
+}
 function saveStats(){ try{ localStorage.setItem('ctl.stats', JSON.stringify(ST)); }catch(e){} }
-function updateStats(fn){ fn(ST); for(const b of BADGES) if(!ST.badges.includes(b.id) && b.got(ST)){ ST.badges.push(b.id); badgeToast(b.name); } saveStats(); }
+function updateStats(fn){ fn(ST); for(const b of BADGES) if(!ST.badges.includes(b.id) && b.got(ST)){ ST.badges.push(b.id); badgeToast(b); } saveStats(); }
 try{ S.best=+localStorage.getItem('ctl.best')||0; S.bestTier=+localStorage.getItem('ctl.tier')||0; S.muted=localStorage.getItem('ctl.mute')==='1'; }catch(e){}
 
 const $ = id=>document.getElementById(id);
@@ -725,17 +758,18 @@ function statsCard(){
       ${chip(ST.tourneys,'tournaments completed')}${chip(ST.dailies,'dailies played')}
     </div>
     <div class="subhead">Badges · ${ST.badges.length} of ${BADGES.length}</div>
-    <div class="chips">${BADGES.map(b=>`<span class="chip badge ${ST.badges.includes(b.id)?'got':''}" title="${b.tip}">${ST.badges.includes(b.id)?'✓ ':''}${b.name}</span>`).join('')}</div>
+    <div class="badges">${BADGES.map(b=>{ const got=ST.badges.includes(b.id);
+      return `<div class="badge-cell ${got?'':'locked'}" title="${b.tip}${got?'':' (not yet earned)'}">${emblem(b.id,56)}<span>${b.name}</span></div>`; }).join('')}</div>
     <span class="hint">Saved on this device</span>
     <div class="row"><button class="btn" id="go">Back</button></div>
   `);
 }
 let badgeQueue=[], badgeBusy=false;
-function badgeToast(name){ badgeQueue.push(name); if(!badgeBusy) nextBadge(); }
+function badgeToast(badge){ badgeQueue.push(badge); if(!badgeBusy) nextBadge(); }
 function nextBadge(){
-  const el=$('badgeToast'), name=badgeQueue.shift();
-  if(!name){ badgeBusy=false; el.hidden=true; return; }
-  badgeBusy=true; el.innerHTML=`<span>Badge earned: ${name}</span>`; el.hidden=false;
+  const el=$('badgeToast'), b=badgeQueue.shift();
+  if(!b){ badgeBusy=false; el.hidden=true; return; }
+  badgeBusy=true; el.innerHTML=`<span>${emblem(b.id,32)}Badge earned: ${b.name}</span>`; el.hidden=false;
   setTimeout(nextBadge, 2400);
 }
 function startTournament(){
@@ -923,8 +957,15 @@ $('home').onclick=()=>{
 function disarmHome(){ clearTimeout(homeArm); homeArm=0; $('home').textContent='Home'; $('home').classList.remove('confirm'); }
 $('rulesBtn').onclick=()=>{ if(S.phase==='idle'||S.phase==='end'||(S.phase==='review' && $('nx') && !$('overlay').hidden)) rulesCard(); };
 $('statsBtn').onclick=()=>{ if(S.phase==='idle'||S.phase==='end'||(S.phase==='review' && $('nx') && !$('overlay').hidden)) statsCard(); };
-$('mute').onclick=()=>{ S.muted=!S.muted; $('mute').textContent='Sound: '+(S.muted?'off':'on'); try{localStorage.setItem('ctl.mute',S.muted?'1':'0')}catch(e){} };
-$('mute').textContent='Sound: '+(S.muted?'off':'on');
+function renderMute(){ // speaker with sound waves, or with a slash through it when muted
+  const b=$('mute');
+  b.innerHTML=`<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 7.5h3l4.5-4v13l-4.5-4h-3z" fill="currentColor"/>${S.muted
+    ? '<path d="M2 18L18 2" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>'
+    : '<path d="M13 7a4.2 4.2 0 0 1 0 6M15.5 4.5a7.8 7.8 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'}</svg>Sound`;
+  b.setAttribute('aria-pressed', String(!S.muted)); b.setAttribute('aria-label', 'Sound '+(S.muted?'off':'on'));
+}
+$('mute').onclick=()=>{ S.muted=!S.muted; renderMute(); try{localStorage.setItem('ctl.mute',S.muted?'1':'0')}catch(e){} };
+renderMute();
 
 // ---------- Boot ----------
 function start(){ booted=true; hud(); setPitch(6); newBall(); ball.vis=false; drawScene(0); intro(); }
