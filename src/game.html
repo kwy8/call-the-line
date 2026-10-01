@@ -183,8 +183,10 @@ const TIERS = [
   {name:'Capital Masters 1000', short:'1000',   surf:'Blue hard',  calls:12, court:'#2E67A4', out:'#2B4F77', line:'#FFFFFF', stands:'#BEC7D1', speed:[32,40], near:[4.0,10.0], margin:[0.005,0.04], win:1.25, angle:0.11},
   {name:'The Grand Slam Final', short:'Slam',   surf:'Grass',      calls:12, court:'#4E8C3E', out:'#5D9C4A', line:'#FFFFFF', stands:'#C8CFC2', speed:[36,44], near:[4.5,11.0], margin:[0.002,0.03], win:1.05, angle:0.13},
 ];
-// Daily challenge: DAILY_N balls, BALLS_PER_TIER from each tournament in order, seeded by the local calendar date.
-const DAILY_N = 20, BALLS_PER_TIER = 4, DAILY_EPOCH = [2026,9,30]; // daily #1
+// Daily challenge: DAILY_N balls seeded by the local calendar date, all at one player level (ball speeds, margins and
+// call window of one tournament), which the date also picks.
+const DAILY_N = 20, DAILY_EPOCH = [2026,9,30]; // daily #1
+const DAILY_LEVELS = [ { name:'Club', tier:0 }, { name:'National', tier:2 }, { name:'Pro', tier:4 } ];
 const BALL_R = 0.0335, LINE_W = 0.05, MARK_L = 0.11, MARK_W = 0.072, G = 9.81;
 const FAR_BASE = 23.77, NET_Y = 11.885, SVC1 = 5.485, SVC2 = 18.285, CENTRE = -4.115, SINGLES_W = 8.23;
 // Seat geometry: how a seat is simulated and measured, for a singles or doubles match. axis = the coordinate the margin
@@ -458,7 +460,7 @@ function loop(ts){
 }
 function startPoint(){
   S.call++;
-  if(S.mode==='daily'){ S.tier=Math.min(TIERS.length-1, Math.floor((S.call-1)/BALLS_PER_TIER)); $('tSw').style.background=TIERS[S.tier].court; }
+  if(S.mode==='daily'){ S.tier=DAILY_LEVELS[S.daily.level].tier; $('tSw').style.background=TIERS[S.tier].court; }
   const T=TIERS[S.tier];
   $('tProg').textContent = `${T.surf} · ${cap(S.match)} · call ${S.call} of ${S.mode==='daily'?DAILY_N:T.calls}`;
   newBall(); callWindow=T.win; resolved=false;
@@ -710,6 +712,7 @@ function previewSeat(seat, match){ S.seat=seat; S.match=match; S.call=0; newBall
 // the daily's seat and match type come from their own date-seeded streams, so the ball sequence is untouched
 function dailySeat(key){ return pickSeat(TIERS.length, seeded('ctl-daily-seat-'+key)()); }
 function dailyMatch(key){ return seeded('ctl-daily-match-'+key)()<0.5 ? 'singles' : 'doubles'; }
+function dailyLevel(key){ return Math.min(DAILY_LEVELS.length-1, Math.floor(seeded('ctl-daily-level-'+key)()*DAILY_LEVELS.length)); }  // index into DAILY_LEVELS
 function rulesCard(){ sideCard(`<h2>Rules</h2>${RULES}<div class="row"><button class="btn" id="go">Back</button></div>`); }
 function statsCard(){
   const pct=ST.calls?Math.round(100*ST.correct/ST.calls):0, chip=(v,k)=>`<span class="chip"><b>${v}</b> ${k}</span>`;
@@ -823,11 +826,13 @@ function dailySave(){ try{ localStorage.setItem('ctl.daily', JSON.stringify(S.da
 function dailyIntro(){
   S.phase='idle'; S.mode='daily'; hud();
   const { key, n }=dailyToday(), seat=dailySeat(key), match=dailyMatch(key);
-  S.tier=0; previewSeat(seat, match);
+  const lv=DAILY_LEVELS[dailyLevel(key)], T=TIERS[lv.tier];
+  S.tier=lv.tier; previewSeat(seat, match);
   card(`
     <span class="tag">Daily challenge</span>
     <h2>Daily #${n}</h2>
     <p>Same ${DAILY_N} balls for everyone today. One attempt.</p>
+    <div class="chips"><span class="chip"><b>${lv.name}</b> level</span><span class="chip">up to <b>${Math.round(T.speed[1]*3.6)}</b> km/h</span><span class="chip"><b>${T.win}</b> s to call</span></div>
     ${seatDiagram(seat, match)}
     <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
   `);
@@ -839,7 +844,7 @@ function dailyStart(){
   const { key, n }=dailyToday();
   R=seeded('ctl-daily-'+key);
   S.mode='daily'; S.seat=dailySeat(key); S.match=dailyMatch(key); S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0;
-  S.daily={ key, n, results:[], pts:0 };
+  S.daily={ key, n, level:dailyLevel(key), results:[], pts:0 };
   dailySave(); updateStats(st=>{ st.dailies++; });
   $('tName').textContent=`Daily #${n}`; hud();
   startPoint();
@@ -848,12 +853,12 @@ function dailyRecord(right){ S.daily.results.push(right); S.daily.pts=S.score; d
 function dailyResults(){
   S.phase='end'; R=Math.random;
   const r=dailyLoad()||S.daily, correct=r.results.filter(Boolean).length;
-  const acc=Math.round(100*correct/DAILY_N), played=r.results.length;
+  const acc=Math.round(100*correct/DAILY_N), played=r.results.length, level=DAILY_LEVELS[r.level ?? dailyLevel(r.key)].name;
   const dots=Array.from({length:DAILY_N},(_,i)=>`<i class="${i<played?(r.results[i]?'y':'n'):''}"></i>`).join('');
   card(`
     <span class="tag ${acc>=75?'good':''}">Daily #${r.n}</span>
     <h2>${correct}/${DAILY_N} called right</h2>
-    <div class="chips"><span class="chip"><b>${acc}%</b> accuracy</span><span class="chip"><b>${(r.pts||0).toLocaleString()}</b> pts</span></div>
+    <div class="chips"><span class="chip"><b>${level}</b> level</span><span class="chip"><b>${acc}%</b> accuracy</span><span class="chip"><b>${(r.pts||0).toLocaleString()}</b> pts</span></div>
     <div class="dots" aria-label="Call by call results">${dots}</div>
     ${played<DAILY_N?`<span class="hint">Stopped after ${played} of ${DAILY_N}. The rest count as missed.</span>`:''}
     <div class="row"><button class="btn" id="share">Copy result</button><button class="btn ghost" id="back">Back</button></div>
@@ -861,7 +866,7 @@ function dailyResults(){
   `);
   $('share').onclick=()=>{
     const grid=Array.from({length:DAILY_N},(_,i)=>r.results[i]?'🟩':'🟥').join('');
-    copyText(`Call the Line daily #${r.n}: ${correct}/${DAILY_N}\n${grid}\n${location.href.split('#')[0]}`);
+    copyText(`Call the Line daily #${r.n} · ${level} · ${correct}/${DAILY_N}\n${grid}\n${location.href.split('#')[0]}`);
   };
   $('back').onclick=dailyExit;
 }
