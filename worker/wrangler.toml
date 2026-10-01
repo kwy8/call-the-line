@@ -19,3 +19,10 @@ ALLOWED_ORIGIN = "https://calltheline.site,https://www.calltheline.site,https://
 binding = "LEADERBOARD"
 # Created with: npx wrangler kv namespace create LEADERBOARD
 id = "ad15bd2bd3c24ce094d0200ea351cf2e"
+
+# Rate limiting: 30 requests per 60 s per hashed IP, counted by Cloudflare (free, no KV). namespace_id is any
+# positive integer, unique among rate limiters in the account.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }

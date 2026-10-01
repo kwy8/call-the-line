@@ -5,10 +5,12 @@
 //   GET  /daily/rank?day=YYYY-MM-DD&id=...                     -> {day, rank, total}  (rank is null when the id has no score)
 //
 // Storage: one key per score, `s:<day>:<id>`, with the entry in the key's metadata, so a day's board is one paged
-// list() with no per-key reads and two players submitting at once can't overwrite each other. Rate limiting uses
-// short-lived `rl:<hashed ip>:<minute>` counters; raw IPs are never stored.
+// list() with no per-key reads and two players submitting at once can't overwrite each other. The only KV write is
+// that one put per accepted score. Rate limiting uses Cloudflare's rate limiting binding (RATE_LIMITER), keyed by a
+// hash of the IP, and falls back to a per-isolate counter when the binding is missing; neither touches KV. A day's
+// sorted board is kept in the Cache API for 30 s, so /daily/top and /daily/rank only list KV on a cache miss.
 
-export const BALLS = 20, TOP = 50, NAME_MAX = 16, RATE_LIMIT = 30;
+export const BALLS = 20, TOP = 50, NAME_MAX = 16, RATE_LIMIT = 30, BOARD_TTL = 30;
 
 // Score bounds, mirroring resolve() in src/game.html: a correct call scores round((100 + speed) * mult), where speed
 // runs 0..100 with how fast the call was and mult = 1 + min(4, floor(streak / 3)) * 0.5. A wrong call scores nothing
@@ -62,14 +64,49 @@ async function hashIp(ip) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('ctl-rl:' + ip));
   return [...new Uint8Array(d).slice(0, 8)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
-// 30 requests per minute per IP. KV is eventually consistent and allows about one write per second per key, so the
-// limit is approximate under bursts; it fails open rather than block players if KV refuses a write.
-async function overLimit(kv, ip, now) {
-  const key = `rl:${await hashIp(ip)}:${Math.floor(now / 60000)}`;
-  const n = Number(await kv.get(key)) || 0;
-  if (n >= RATE_LIMIT) return true;
-  try { await kv.put(key, String(n + 1), { expirationTtl: 120 }); } catch (e) { /* fail open */ }
-  return false;
+// 30 requests per minute per IP. The RATE_LIMITER binding (wrangler.toml, [[ratelimits]]) counts per Cloudflare
+// location and is approximate by design. Without it, or if it throws, each isolate counts in memory per minute, which
+// is looser still (a busy Worker runs several isolates) but costs nothing and never blocks a player on an error.
+let memMinute = -1, memCounts = new Map();
+function memOverLimit(key, now) {
+  const minute = Math.floor(now / 60000);
+  if (minute !== memMinute) { memMinute = minute; memCounts = new Map(); }
+  const n = (memCounts.get(key) || 0) + 1;
+  memCounts.set(key, n);
+  return n > RATE_LIMIT;
+}
+async function overLimit(env, ip, now) {
+  const key = await hashIp(ip);
+  if (env.RATE_LIMITER?.limit) {
+    try { return !(await env.RATE_LIMITER.limit({ key })).success; } catch (e) { /* fall back to memory */ }
+  }
+  return memOverLimit(key, now);
+}
+
+// A day's sorted board (with ids, for /daily/rank) in the Cache API under an internal URL the router never serves.
+// The entry records when it was listed from KV and expires BOARD_TTL seconds after that, even when a submission
+// rewrites it, so a location keeps picking up scores sent elsewhere. The Cache API is per location: a new score
+// refreshes the board where it was sent, other locations see it within 30 s. `cache` is undefined outside Workers.
+const boardKey = (url, day) => `https://${url.host}/__board/${day}`;
+async function cachedBoard(cache, url, day, now) {
+  const hit = cache && await cache.match(boardKey(url, day));
+  if (!hit) return null;
+  const { at, rows } = await hit.json();
+  return now - at < BOARD_TTL * 1000 ? { at, rows } : null;
+}
+async function storeBoard(cache, url, day, at, rows, now) {
+  if (!cache) return;
+  const ttl = Math.ceil(BOARD_TTL - (now - at) / 1000);
+  if (ttl <= 0) return;
+  await cache.put(boardKey(url, day), new Response(JSON.stringify({ at, rows }),
+    { headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${ttl}` } }));
+}
+async function freshBoard(kv, cache, url, day, now) {
+  const cached = await cachedBoard(cache, url, day, now);
+  if (cached) return cached;
+  const rows = await board(kv, day);
+  await storeBoard(cache, url, day, now, rows, now);
+  return { at: now, rows };
 }
 
 // CORS: ALLOWED_ORIGIN is a comma-separated list of origins (or "*"). A request whose Origin is on the list gets that
@@ -81,7 +118,7 @@ export function corsHeaders(allowed, origin) {
            'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400' };
 }
 
-export async function handle(request, env, now = Date.now()) {
+export async function handle(request, env, now = Date.now(), cache = globalThis.caches?.default) {
   const url = new URL(request.url), kv = env.LEADERBOARD;
   // Vary: Origin on every response, since the CORS headers depend on it and /daily/top may be cached
   const cors = { Vary: 'Origin', ...corsHeaders(env.ALLOWED_ORIGIN, request.headers.get('Origin')) };
@@ -89,7 +126,7 @@ export async function handle(request, env, now = Date.now()) {
     new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...cors, ...extra } });
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (await overLimit(kv, ip, now)) return reply(429, { error: 'too many requests, try again in a minute' }, { 'Retry-After': '60' });
+  if (await overLimit(env, ip, now)) return reply(429, { error: 'too many requests, try again in a minute' }, { 'Retry-After': '60' });
 
   if (url.pathname === '/daily/score') {
     if (request.method !== 'POST') return reply(405, { error: 'use POST' });
@@ -104,8 +141,11 @@ export async function handle(request, env, now = Date.now()) {
     const me = prev.metadata ? { id: b.id, ...prev.metadata } : { id: b.id, n: cleanName(b.name), s: b.score, c: b.correct, a: b.avgMs, t: now };
     if (!prev.metadata) await kv.put(key, '', { metadata: { n: me.n, s: me.s, c: me.c, a: me.a, t: me.t } });
     // KV listing is eventually consistent, so a score written moments ago may be missing from the list: add it back.
-    // The response carries the fresh top 10, since /daily/top may be cached for 30 s.
-    const rows = (await board(kv, b.day)).filter(r => r.id !== me.id).concat(me).sort(better);
+    // The board comes from the cache when it is under 30 s old; the merged board goes back into the cache (keeping
+    // its original expiry), so the next /daily/top here includes this score without listing KV again.
+    const cur = await freshBoard(kv, cache, url, b.day, now);
+    const rows = cur.rows.filter(r => r.id !== me.id).concat(me).sort(better);
+    if (!prev.metadata) await storeBoard(cache, url, b.day, cur.at, rows, now);
     return reply(200, { accepted: !prev.metadata, rank: rows.indexOf(me) + 1, total: rows.length, top: publicRows(rows, 10) });
   }
 
@@ -113,7 +153,7 @@ export async function handle(request, env, now = Date.now()) {
     if (request.method !== 'GET') return reply(405, { error: 'use GET' });
     const day = url.searchParams.get('day') || '';
     if (!DAY.test(day)) return reply(400, { error: 'day must be YYYY-MM-DD' });
-    const rows = await board(kv, day);
+    const { rows } = await freshBoard(kv, cache, url, day, now);
     if (url.pathname === '/daily/top')
       return reply(200, { day, total: rows.length, top: publicRows(rows, TOP) },
                   { 'Cache-Control': 'public, max-age=30' });

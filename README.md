@@ -48,7 +48,7 @@ GET  /daily/rank?day=YYYY-MM-DD&id=...                      ->  {day, rank, tota
 
 Browsers may call it only from the origins in `ALLOWED_ORIGIN` in `worker/wrangler.toml` (a comma-separated list; the Worker echoes back the matching origin and sends no CORS headers to any other). Add an origin there and redeploy if the game is served from somewhere new.
 
-Rules: one score per player id per day (later submissions are ignored and the first stands); the score must be possible for that many correct calls out of 20 (between 100 per correct call and the full-speed, unbroken-streak maximum, 9,400 for 20); the day must be yesterday, today or tomorrow in UTC, to cover every timezone; names are cut to 16 characters with control and invisible characters removed; 30 requests per minute per IP. Ties go to the faster average call, then the earlier submission.
+Rules: one score per player id per day (later submissions are ignored and the first stands); the score must be possible for that many correct calls out of 20 (between 100 per correct call and the full-speed, unbroken-streak maximum, 9,400 for 20); the day must be yesterday, today or tomorrow in UTC, to cover every timezone; names are cut to 16 characters with control and invisible characters removed; 30 requests per minute per IP, counted by Cloudflare's rate limiting binding (`[[ratelimits]]` in `wrangler.toml`), or per Worker isolate in memory if the binding is unavailable. Ties go to the faster average call, then the earlier submission.
 
 Deploy (needs a Cloudflare account; commands are for Wrangler 4, run from the repository root):
 
@@ -61,7 +61,9 @@ npx wrangler deploy
 
 `wrangler.toml` routes the Worker to `api.calltheline.site` as a custom domain, which needs the `calltheline.site` zone in the same Cloudflare account. Without it, delete the `routes` block, deploy, and set `API_BASE` in `src/game.html` to the `*.workers.dev` URL that `wrangler deploy` prints. `npx wrangler tail` streams the Worker's logs. To remove one score: `npx wrangler kv key delete "s:YYYY-MM-DD:<player id>" --binding LEADERBOARD --remote`.
 
-What it stores: per score, the player's random id (made on their device), the display name they chose, the score, correct calls, average call time and submission time. Rate-limit counters hold a hash of the IP for two minutes; raw IPs are not stored. Players who choose "Play without" never send anything. Limits worth knowing: KV is eventually consistent and allows about one write per second per key, so the rate limit is approximate under bursts, and the bounds stop impossible scores but not a determined cheat sending plausible ones.
+What it stores: per score, the player's random id (made on their device), the display name they chose, the score, correct calls, average call time and submission time. The rate limiter counts by a hash of the IP for a minute and never writes to KV; raw IPs are not stored. Players who choose "Play without" never send anything.
+
+KV usage: the only write is one per accepted score (a repeat submission writes nothing). Each day's sorted board is kept in the Cache API for 30 s, so `/daily/top` and `/daily/rank` list KV only on a cache miss, and a new score updates the cached board where it was sent. The Cache API is per Cloudflare location, so other locations see a new score within 30 s, and it does nothing on `*.workers.dev`, only on the custom domain. `npm run check` counts KV operations against an in-memory KV and fails if that changes. Limits worth knowing: the rate limit is approximate (counted per location), and the bounds stop impossible scores but not a determined cheat sending plausible ones.
 
 ## Deploy the web version
 

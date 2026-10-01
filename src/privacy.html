@@ -55,7 +55,7 @@ footer{margin-top:40px;font-size:13px;color:var(--muted)}
 <li>your random player id,</li>
 <li>your score, number of correct calls and average reaction time.</li>
 </ul>
-<p>Display names and scores are public: anyone playing that day's challenge sees the top of the board. Don't use your real name if you'd rather not. The server runs on Cloudflare Workers and keeps standard request logs (IP address, time, request) for a short period for abuse prevention and rate limiting; these are not joined to your scores. The leaderboard server also keeps a hashed form of your IP address for about two minutes to limit request rates; it is not stored with your scores. You can skip the leaderboard entirely by choosing Play without at the name prompt; the daily still works, you just won't be ranked.</p>
+<p>Display names and scores are public: anyone playing that day's challenge sees the top of the board. Don't use your real name if you'd rather not. The server runs on Cloudflare Workers and keeps standard request logs (IP address, time, request) for a short period for abuse prevention and rate limiting; these are not joined to your scores. The leaderboard server also uses a hashed form of your IP address, kept for about a minute, to limit request rates; it is not stored with your scores. You can skip the leaderboard entirely by choosing Play without at the name prompt; the daily still works, you just won't be ranked.</p>
 <p>To have your leaderboard entries removed, email the address below with your display name and the dates; we'll delete them.</p>
 
 <h2>Hosting and analytics</h2>

@@ -5,14 +5,17 @@ import { handle, cleanName, maxScore, minScore, NAME_MAX } from '../worker/src/i
 
 // In-memory stand-in for a KV namespace: get, getWithMetadata, put (with metadata), paged list with metadata.
 // `lag` hides keys from list() until a later list call, like KV's eventually consistent listing.
+// `ops` counts calls by kind, so the check can hold the Worker to one KV write per accepted score.
 function memoryKV() {
-  const m = new Map(), hidden = new Set();
+  const m = new Map(), hidden = new Set(), ops = { get: 0, put: 0, list: 0, delete: 0 };
   return {
-    store: m, hidden,
-    async get(k) { return m.has(k) ? m.get(k).value : null; },
-    async getWithMetadata(k) { return m.has(k) ? { value: m.get(k).value, metadata: m.get(k).metadata ?? null } : { value: null, metadata: null }; },
-    async put(k, value, opts = {}) { m.set(k, { value, metadata: opts.metadata }); },
+    store: m, hidden, ops,
+    async get(k) { ops.get++; return m.has(k) ? m.get(k).value : null; },
+    async getWithMetadata(k) { ops.get++; return m.has(k) ? { value: m.get(k).value, metadata: m.get(k).metadata ?? null } : { value: null, metadata: null }; },
+    async put(k, value, opts = {}) { ops.put++; m.set(k, { value, metadata: opts.metadata }); },
+    async delete(k) { ops.delete++; m.delete(k); },
     async list({ prefix = '', cursor } = {}) {
+      ops.list++;
       const all = [...m.keys()].filter(k => k.startsWith(prefix) && !hidden.has(k)).sort();
       const start = cursor ? +cursor : 0, page = all.slice(start, start + 2);  // tiny pages so paging is exercised
       const end = start + page.length;
@@ -21,16 +24,28 @@ function memoryKV() {
   };
 }
 
+// In-memory stand-in for caches.default: match and put by URL. Expiry is left to the Worker, which checks the age
+// it stores in each entry against the `now` it is given.
+function memoryCache() {
+  const m = new Map();
+  return {
+    store: m,
+    async match(k) { const r = m.get(String(k.url ?? k)); return r ? r.clone() : undefined; },
+    async put(k, res) { m.set(String(k.url ?? k), res.clone()); },
+    async delete(k) { return m.delete(String(k.url ?? k)); },
+  };
+}
+
 const failures = [];
 const check = (ok, msg) => { if (!ok) failures.push(msg); return ok; };
 const NOW = Date.parse('2026-10-01T09:30:00Z'), DAY = '2026-10-01';
-let env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: '*' }, ipCounter = 0;
+let env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: '*' }, cache, ipCounter = 0;
 const id = n => 'player' + String(n).padStart(14, '0');
 // each request comes from a fresh IP unless one is given, so the rate limit only bites where it is being tested
 async function call(method, path, body, { ip = `10.0.${++ipCounter >> 8}.${ipCounter & 255}`, now = NOW, raw, origin } = {}) {
   const init = { method, headers: { 'CF-Connecting-IP': ip, 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) } };
   if (body !== undefined || raw !== undefined) init.body = raw ?? JSON.stringify(body);
-  const res = await handle(new Request('https://api.example.test' + path, init), env, now);
+  const res = await handle(new Request('https://api.example.test' + path, init), env, now, cache);
   const text = await res.text();
   return { status: res.status, headers: res.headers, body: text ? JSON.parse(text) : null };
 }
@@ -105,7 +120,45 @@ for (let i = 0; i < 31; i++) statuses.push((await call('GET', `/daily/top?day=${
 check(statuses.slice(0, 30).every(s => s === 200) && statuses[30] === 429, `rate limit: ${statuses.join(',')}`);
 r = await call('GET', `/daily/top?day=${DAY}`, undefined, { ip: '203.0.113.8' }); check(r.status === 200, 'another IP is not limited');
 r = await call('GET', `/daily/top?day=${DAY}`, undefined, { ip: '203.0.113.7', now: NOW + 60000 }); check(r.status === 200, 'the limit resets the next minute');
-check(![...env.LEADERBOARD.store.keys()].some(k => k.includes('203.0.113')), 'raw IPs must not be stored');
+check(env.LEADERBOARD.ops.put === 0 && env.LEADERBOARD.store.size === 0, `rate limiting must not write KV: ${env.LEADERBOARD.ops.put} puts`);
+
+// the RATE_LIMITER binding decides when present; the in-memory fallback takes over if it throws
+const limiterKeys = [];
+env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: '*', RATE_LIMITER: { async limit({ key }) { limiterKeys.push(key); return { success: limiterKeys.length <= 2 }; } } };
+statuses.length = 0;
+for (let i = 0; i < 3; i++) statuses.push((await call('GET', `/daily/top?day=${DAY}`, undefined, { ip: '203.0.113.9' })).status);
+check(statuses.join() === '200,200,429', `binding decides the limit: ${statuses}`);
+check(limiterKeys.every(k => /^[0-9a-f]{16}$/.test(k)), `binding is keyed by a hash, not the raw IP: ${limiterKeys[0]}`);
+env.RATE_LIMITER = { async limit() { throw new Error('binding down'); } };
+r = await call('GET', `/daily/top?day=${DAY}`, undefined, { ip: '203.0.113.10' }); check(r.status === 200, 'a failing binding falls back instead of blocking');
+
+// ---------- KV operations with the board cache ----------
+// One put per accepted score and nothing else; start-screen loads within 30 s of each other don't touch KV.
+env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: '*' }; cache = memoryCache();
+const ops = env.LEADERBOARD.ops, snap = () => ({ ...ops });
+for (let n = 1; n <= 5; n++) await score(n, 1000 + 100 * n, 10, 500);
+check(ops.put === 5, `5 scores should be 5 KV writes, got ${ops.put}`);
+check(ops.list === 1, `5 scores within 30 s should list KV once (then use the cached board), got ${ops.list}`);
+let before = snap();
+for (let i = 0; i < 20; i++) { await call('GET', `/daily/top?day=${DAY}`, undefined, { now: NOW + 1000 }); await call('GET', `/daily/rank?day=${DAY}&id=${id(3)}`, undefined, { now: NOW + 1000 }); }
+check(ops.list === before.list && ops.get === before.get && ops.put === before.put, `cached top/rank must not touch KV: ${JSON.stringify(before)} -> ${JSON.stringify(ops)}`);
+r = await call('GET', `/daily/top?day=${DAY}`, undefined, { now: NOW + 1000 });
+check(r.body.total === 5 && r.body.top[0].name === 'P5', `cached top includes every submitted score: ${JSON.stringify(r.body)}`);
+r = await call('GET', `/daily/rank?day=${DAY}&id=${id(3)}`, undefined, { now: NOW + 1000 }); check(r.body.rank === 3, `cached rank: ${JSON.stringify(r.body)}`);
+// a new score updates the cached board straight away
+await score(6, 9400, 20, 100);
+r = await call('GET', `/daily/top?day=${DAY}`, undefined, { now: NOW + 2000 });
+check(r.body.total === 6 && r.body.top[0].name === 'P6', `new score shows in the cached top at once: ${JSON.stringify(r.body.top?.[0])}`);
+// a repeat submission writes nothing
+before = snap(); await score(6, 9400, 20, 100); check(ops.put === before.put, 'a repeat submission must not write KV');
+// the cached board expires 30 s after it was listed, even though submissions rewrote it, so scores sent to other
+// locations (written straight to KV here) show up
+env.LEADERBOARD.store.set(`s:${DAY}:${id(7)}`, { value: '', metadata: { n: 'Elsewhere', s: 9000, c: 20, a: 300, t: NOW } });
+r = await call('GET', `/daily/top?day=${DAY}`, undefined, { now: NOW + 29000 }); check(r.body.total === 6, 'still cached at 29 s');
+r = await call('GET', `/daily/top?day=${DAY}`, undefined, { now: NOW + 30000 }); check(r.body.total === 7, `relisted at 30 s: ${r.body.total}`);
+check((await call('GET', `/__board/${DAY}`)).status === 404, 'the internal cache URL is not served');
+const kvWrites = ops.put;
+cache = undefined;
 
 // ---------- CORS: echo back an allowed origin, nothing for any other ----------
 const ALLOWED = ['https://calltheline.site', 'https://www.calltheline.site', 'https://kwy8.github.io', 'capacitor://localhost', 'https://localhost', 'http://localhost:3000'];
@@ -130,4 +183,4 @@ r = await call('OPTIONS', '/daily/score', undefined, { origin: 'https://anything
 check(r.headers.get('Access-Control-Allow-Origin') === '*', '"*" still allows any origin');
 
 if (failures.length) { console.error(`worker check failed: ${failures.length} problem(s)`); for (const f of failures) console.error('  ' + f); process.exit(1); }
-console.log('worker check passed: scores, one per id per day, validation, names, ordering, rank, fresh top 10 on submit, top 50, rate limit, CORS allowlist');
+console.log('worker check passed: scores, one per id per day, validation, names, ordering, rank, fresh top 10 on submit, top 50, rate limit (binding and fallback, no KV), board cache, one KV write per score (' + kvWrites + ' writes for 6 scores), CORS allowlist');
