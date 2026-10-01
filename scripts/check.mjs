@@ -1,6 +1,8 @@
 // Geometry and daily-seed check for the game in src/game.html, run in Node with a stubbed page and canvas.
 //   npm run check
-// For every seat and tier, in singles and doubles, it generates balls with the game's own newBall() and asserts that:
+// For every seat and tier, in singles and doubles and in every match condition that can occur there, it generates balls
+// with the game's own newBall() and asserts that:
+//   - the bounce mark has the right length for the condition (damp grass: 20% longer), and every test below uses it
 //   - in/out matches the sign of the margin, and matches an independent test of the bounce mark against the judged line
 //   - the margin the game reports equals the measured gap between the mark and the line's outer edge
 //   - balls in the doubles alley are out in a singles match and in in a doubles match (and both cases occur)
@@ -12,11 +14,11 @@ import { readFileSync } from 'node:fs';
 
 const BALLS_PER_SEAT_AND_TIER = 300;
 
-// Frozen daily fixture: level, seat, match type and first 5 balls of the daily for 2026-10-01, rounded to 6 decimals
+// Frozen daily fixture: level, seat, match type, condition and first 5 balls of the daily for 2026-10-01, rounded to 6 decimals
 // (metres, m/s). Everyone playing a given date must get the same balls, so these must only change on purpose. If a change to
 // the ball code, TIERS, seats or the daily seeding is deliberate, regenerate these values and say so in the commit.
 const DAILY_FIXTURE = {
-  date: '2026-10-01', level: 'National', seat: 'service-line-right', match: 'singles',
+  date: '2026-10-01', level: 'National', seat: 'service-line-right', match: 'singles', cond: 'night',
   balls: [
     { tier: 2, xL: -5.263177, yL: 5.314634, vx: -1.763319, vy: -31.415598, m: 0.115415,  isIn: false },
     { tier: 2, xL: -5.799764, yL: 5.417902, vx: 2.692516,  vy: -32.996784, m: 0.012202,  isIn: false },
@@ -32,7 +34,7 @@ const END = /\}\)\(\);\s*$/;  // the game script is one IIFE; expose its interna
 if (!END.test(match[1])) fail('src/game.html script no longer ends with "})();"');
 const src = match[1].replace(END, `window.__ctl={ S, newBall, startPoint, resolve, dailyStart, proj, cam, SEATS,
   get ball(){ return ball; }, get W(){ return W; }, get H(){ return H; },
-  LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, DAILY_LEVELS };})();`);
+  LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, DAILY_LEVELS, TIERS, CONDITIONS, pickCond };})();`);
 
 // A seeded Math.random so every run checks the same balls and a failure can be reproduced.
 function mulberry32(a) { return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -63,26 +65,32 @@ const failures = [];
 const check = (ok, msg) => { if (!ok && failures.length < 50) failures.push(msg); return ok; };
 function fail(msg) { console.error('check failed: ' + msg); process.exit(1); }
 
-// ---------- geometry, every seat and tier, singles and doubles ----------
+// ---------- geometry, every seat and tier, singles and doubles, every condition ----------
 const g = boot('2026-09-30T10:00:00');
-const { S, SEATS, LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY } = g;
+const { S, SEATS, LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, TIERS, CONDITIONS } = g;
 const MATCHES = ['singles', 'doubles'];
+// Expected mark length, worked out here rather than read from the game: damp grass makes the ball skid 20% further.
+const DAMP_SKID = 1.2, expectedMarkL = cond => MARK_L * (cond === 'damp' ? DAMP_SKID : 1);
+const condOk = (cond, tier) => cond !== 'damp' || TIERS[tier].surf === 'Grass';  // damp grass only exists on grass
 const alley = { singles: 0, doubles: 0 };  // side-seat balls whose mark lies in the doubles alley
-let balls = 0;
-for (const match of MATCHES) for (const id of Object.keys(SEATS)) {
+let balls = 0, dampBalls = 0;
+for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (const id of Object.keys(SEATS)) {
   for (let tier = 0; tier < 5; tier++) {
+    if (!condOk(cond, tier)) continue;
     for (let i = 0; i < BALLS_PER_SEAT_AND_TIER; i++) {
-      S.seat = id; S.match = match; S.tier = tier; S.call = 1; g.newBall();
-      const b = g.ball, V = b.geo, tag = `${match} ${id} tier ${tier} ball ${i} (m=${(b.m * 1000).toFixed(2)} mm)`;
-      balls++;
-      check(b.seat === id && b.match === match && g.cam.flip === !!SEATS[id].flip, `${tag}: seat/match/flip not applied`);
+      S.seat = id; S.match = match; S.cond = cond; S.tier = tier; S.call = 1; g.newBall();
+      const b = g.ball, V = b.geo, tag = `${cond} ${match} ${id} tier ${tier} ball ${i} (m=${(b.m * 1000).toFixed(2)} mm)`;
+      const markL = expectedMarkL(cond);
+      balls++; if (cond === 'damp') dampBalls++;
+      check(b.seat === id && b.match === match && b.cond === cond && g.cam.flip === !!SEATS[id].flip, `${tag}: seat/match/condition/flip not applied`);
+      check(Math.abs(b.markL - markL) < 1e-12, `${tag}: mark length ${(b.markL * 1000).toFixed(1)} mm, expected ${(markL * 1000).toFixed(1)} mm`);
       check(b.isIn === (b.m < 0), `${tag}: isIn does not match the margin sign`);
       // Independent geometry: trace the elongated mark and test it against the judged line. A sideline's outer edge is
       // V.line (out is x > V.line); a baseline or service line occupies y in [line, line+LINE_W] (out is y < line).
       const th = Math.atan2(b.uy, b.ux);
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       for (let k = 0; k < 720; k++) {
-        const a = k / 720 * 2 * Math.PI, lx = MARK_L / 2 * Math.cos(a), ly = MARK_W / 2 * Math.sin(a);
+        const a = k / 720 * 2 * Math.PI, lx = markL / 2 * Math.cos(a), ly = MARK_W / 2 * Math.sin(a);
         const x = b.xL + lx * Math.cos(th) - ly * Math.sin(th), y = b.yL + lx * Math.sin(th) + ly * Math.cos(th);
         minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
       }
@@ -106,6 +114,13 @@ for (const match of MATCHES) for (const id of Object.keys(SEATS)) {
   }
 }
 for (const m of MATCHES) check(alley[m] > 0, `no ${m} sideline ball landed in the doubles alley, so alley calls were not tested`);
+check(dampBalls > 0, 'no damp-grass balls were generated, so the longer mark was not tested');
+// condition picking: damp grass is offered on grass and never anywhere else
+for (let tier = 0; tier < 5; tier++) {
+  const offered = new Set(Array.from({ length: 1000 }, (_, i) => g.pickCond(tier, i / 1000)));
+  check(offered.has('damp') === (TIERS[tier].surf === 'Grass'), `tier ${tier} (${TIERS[tier].surf}): damp grass ${offered.has('damp') ? 'offered' : 'not offered'}`);
+  for (const c of ['day', 'late', 'night']) check(offered.has(c), `tier ${tier}: condition ${c} never offered`);
+}
 
 // ---------- daily seed: same date, same balls ----------
 function playDaily(dateTime, seed) {
@@ -113,7 +128,7 @@ function playDaily(dateTime, seed) {
   d.dailyStart();
   for (let i = 0; i < 20; i++) {
     const b = d.ball;
-    seq.push([b.seat + '/' + b.match, d.S.tier, b.xL.toFixed(6), b.yL.toFixed(6), b.vy.toFixed(6), b.m.toFixed(6)].join(','));
+    seq.push([b.seat + '/' + b.match + '/' + b.cond, d.S.tier, b.xL.toFixed(6), b.yL.toFixed(6), b.vy.toFixed(6), b.m.toFixed(6)].join(','));
     d.S.phase = 'window'; d.resolve(b.isIn ? 'in' : 'out', 0.5);
     if (i < 19) d.startPoint();
   }
@@ -124,12 +139,25 @@ for (const day of dates) {
   // different time of day and different Math.random: the daily must not depend on either
   const a = playDaily(`${day}T00:05:00`, 1), b = playDaily(`${day}T23:55:00`, 99);
   check(a === b, `daily ${day}: balls differ between 00:05 and 23:55`);
-  check(new Set(a.split('\n').map(r => r.split(',')[0])).size === 1, `daily ${day}: seat or match type changes during the daily`);
+  check(new Set(a.split('\n').map(r => r.split(',')[0])).size === 1, `daily ${day}: seat, match type or condition changes during the daily`);
   const lv = boot(`${day}T12:00:00`, 1); lv.dailyStart();
   const tiers = new Set(a.split('\n').map(r => +r.split(',')[1]));
   check(tiers.size === 1 && tiers.has(lv.DAILY_LEVELS[lv.S.daily.level].tier), `daily ${day}: balls not all at the ${lv.DAILY_LEVELS[lv.S.daily.level].name} level's tier (${[...tiers]})`);
 }
 check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1), 'daily: consecutive dates give the same balls');
+// a year of dailies: the condition fits the level's surface, and damp-grass days really have the longer mark
+{
+  let dampDays = 0;
+  for (let i = 0; i < 365; i++) {
+    const day = new Date(Date.UTC(2026, 9, 1 + i)).toISOString().slice(0, 10), d = boot(`${day}T12:00:00`, 3);
+    d.dailyStart();
+    const tier = d.DAILY_LEVELS[d.S.daily.level].tier, b = d.ball;
+    check(condOk(b.cond, tier), `daily ${day}: condition ${b.cond} on ${d.TIERS[tier].surf}`);
+    check(Math.abs(b.markL - expectedMarkL(b.cond)) < 1e-12, `daily ${day}: ${b.cond} mark length ${(b.markL * 1000).toFixed(1)} mm`);
+    if (b.cond === 'damp') dampDays++;
+  }
+  check(dampDays > 0, 'no damp-grass daily in a year, so damp dailies were not tested');
+}
 
 // ---------- frozen daily fixture ----------
 {
@@ -139,6 +167,7 @@ check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1
   if (level !== DAILY_FIXTURE.level) diffs.push(`level ${level}, expected ${DAILY_FIXTURE.level}`);
   if (d.ball.seat !== DAILY_FIXTURE.seat) diffs.push(`seat ${d.ball.seat}, expected ${DAILY_FIXTURE.seat}`);
   if (d.ball.match !== DAILY_FIXTURE.match) diffs.push(`match type ${d.ball.match}, expected ${DAILY_FIXTURE.match}`);
+  if (d.ball.cond !== DAILY_FIXTURE.cond) diffs.push(`condition ${d.ball.cond}, expected ${DAILY_FIXTURE.cond}`);
   DAILY_FIXTURE.balls.forEach((want, i) => {
     const b = d.ball, got = { tier: d.S.tier, xL: b.xL, yL: b.yL, vx: b.vx, vy: b.vy, m: b.m, isIn: b.isIn };
     for (const k of Object.keys(want)) {
@@ -159,4 +188,4 @@ if (failures.length) {
   for (const f of failures) console.error('  ' + f);
   process.exit(1);
 }
-console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seats, 5 tiers, singles and doubles (alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily (${DAILY_FIXTURE.level}) matches the frozen fixture`);
+console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seats, 5 tiers, singles and doubles, ${Object.keys(CONDITIONS).length} conditions (${dampBalls} damp-grass balls with 20% longer marks; alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily (${DAILY_FIXTURE.level}) matches the frozen fixture`);

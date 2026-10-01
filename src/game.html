@@ -229,6 +229,21 @@ const SEATS = {
   'service-line-right': { name:'Right service line', view:'svc' },
   'service-line-left':  { name:'Left service line',  view:'svc', flip:true },
 };
+// Match conditions, one per tournament (random) or per daily (from the date). Small canvas changes only:
+//   late:  a long shadow band across the court, a longer ball shadow, lower-contrast lines
+//   night: dark sky and stands, floodlit court, brighter ball
+//   damp:  grass only; the ball skids 20% further, so its bounce mark is 20% longer (in the call and the review)
+const CONDITIONS = {
+  day:   { name:'Day' },
+  late:  { name:'Late afternoon' },
+  night: { name:'Night session' },
+  damp:  { name:'Damp grass', grassOnly:true, skid:1.2 },
+};
+function pickCond(tier, r){ const pool=Object.keys(CONDITIONS).filter(k=>!CONDITIONS[k].grassOnly||TIERS[tier].surf==='Grass'); return pool[Math.min(pool.length-1,Math.floor(r*pool.length))]; }
+function mix(a, b, t){ // blend two #rrggbb colours
+  const p=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)), A=p(a), B=p(b);
+  return `rgb(${A.map((v,i)=>Math.round(v+(B[i]-v)*t)).join(',')})`;
+}
 // The exact line a seat judges in a match, e.g. "right doubles sideline"
 function lineName(id, match){ const s=SEATS[id];
   return s.view==='side' ? `${s.flip?'left':'right'} ${match} sideline` : s.view==='base' ? `${s.far?'far':'near'} baseline` : `near service line, from the ${s.flip?'left':'right'}`; }
@@ -237,7 +252,7 @@ const cap = t => t[0].toUpperCase()+t.slice(1);
 function pickSeat(tier, r){ const pool=Object.keys(SEATS).filter(id=>tier>=2||SEATS[id].view!=='svc'); return pool[Math.min(pool.length-1,Math.floor(r*pool.length))]; }
 
 // ---------- State ----------
-const S = { run:0, seat:'sideline-right', match:'singles', mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
+const S = { run:0, seat:'sideline-right', match:'singles', cond:'day', mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
 // ---------- Stats and badges (one localStorage key) ----------
 const ST = { calls:0, correct:0, rtSum:0, rtN:0, bestStreak:0, closest:null, tourneys:0, perfect:0, champion:0, dailies:0, badges:[] };
 try{ Object.assign(ST, JSON.parse(localStorage.getItem('ctl.stats'))||{}); if(!Array.isArray(ST.badges)) ST.badges=[]; }catch(e){}
@@ -319,24 +334,29 @@ function drawScene(t){
   cx.setTransform(dpr,0,0,dpr,0,0);
   const hz = proj(cam.x+400*Math.sin(cam.yaw), cam.y+400*Math.cos(cam.yaw), 0).sy;
   // sky
-  const sky=cx.createLinearGradient(0,0,0,hz-70); sky.addColorStop(0,'#EAF0F4'); sky.addColorStop(1,'#F6F7F2');
+  const C = ball ? ball.cond : S.cond, night = C==='night';
+  const skyCols = night ? ['#0B1524','#1E2C40'] : C==='late' ? ['#F2E2CC','#F8EEDD'] : ['#EAF0F4','#F6F7F2'];
+  const sky=cx.createLinearGradient(0,0,0,hz-70); sky.addColorStop(0,skyCols[0]); sky.addColorStop(1,skyCols[1]);
   cx.fillStyle=sky; cx.fillRect(0,0,W,hz);
-  cx.fillStyle=T.out; cx.fillRect(0,hz,W,H-hz);  // ground to the horizon, so no earlier frame shows through
+  cx.fillStyle=night?shade(T.out,0.55):T.out; cx.fillRect(0,hz,W,H-hz);  // ground to the horizon, so no earlier frame shows through
   // stands: 9 seat rows rising away
   const top=hz-78;
   for(let r=0;r<9;r++){ const y=top+r*8; cx.fillStyle=r%2?shade(T.stands,0.96):T.stands; cx.fillRect(0,y,W,8); }
   cx.fillStyle='rgba(0,0,0,.05)'; cx.fillRect(0,top,W,78);
   for(const p of CROWD){ const y=top+3+p.row*8; cx.fillStyle=p.c; cx.globalAlpha=0.55+p.o*0.4; cx.beginPath(); cx.arc(p.x*W,y,2.3,0,7); cx.fill(); }
   cx.globalAlpha=1;
+  if(night){ cx.fillStyle='rgba(6,12,24,.55)'; cx.fillRect(0,top,W,78); }      // stands in the dark beyond the lights
+  if(C==='late'){ cx.fillStyle='rgba(150,90,30,.07)'; cx.fillRect(0,top,W,78); } // warm low sun
   // hoarding
   cx.fillStyle='#1F3A5F'; cx.fillRect(0,hz-8,W,9);
   cx.fillStyle='rgba(255,255,255,.55)'; cx.font='800 7px "Barlow Condensed", sans-serif'; cx.textAlign='left';
   for(let x=-20;x<W;x+=120) cx.fillText('CALL THE LINE', x, hz-1.5);
-  drawCourt(T, hz, ball ? ball.match : S.match);
+  drawCourt(T, hz, ball ? ball.match : S.match, C);
   // ball
   if(ball && ball.vis){
     const sh=proj(ball.x,ball.y,0), r0=FPX*BALL_R/Math.max(sh.d,0.2);
-    cx.fillStyle='rgba(0,0,0,.3)'; cx.beginPath(); cx.ellipse(sh.sx,sh.sy,r0*1.1,r0*0.45,0,0,7); cx.fill();
+    if(C==='late'){ cx.fillStyle='rgba(0,0,0,.24)'; cx.beginPath(); cx.ellipse(sh.sx+r0*1.6,sh.sy,r0*2.8,r0*0.4,0,0,7); cx.fill(); }  // low sun: long shadow
+    else { cx.fillStyle='rgba(0,0,0,.3)'; cx.beginPath(); cx.ellipse(sh.sx,sh.sy,r0*1.1,r0*0.45,0,0,7); cx.fill(); }
     const q=proj(ball.x,ball.y,ball.z), r=Math.max(1.6, FPX*BALL_R/Math.max(q.d,0.2));
     if(trail.length>1){ // motion blur streak
       const p=proj(trail[0].x,trail[0].y,trail[0].z);
@@ -345,11 +365,12 @@ function drawScene(t){
     }
     const sq = ball.squash; // 1 = round, >1 = flattened on impact
     cx.save(); cx.translate(q.sx,q.sy); cx.scale(sq, 1/sq);
-    const bg=cx.createRadialGradient(-r*.35,-r*.35,r*.2,0,0,r*1.1); bg.addColorStop(0,'#F1F87A'); bg.addColorStop(1,'#B9C51E');
+    const bg=cx.createRadialGradient(-r*.35,-r*.35,r*.2,0,0,r*1.1); bg.addColorStop(0,night?'#FBFFB0':'#F1F87A'); bg.addColorStop(1,night?'#D3DF33':'#B9C51E');
+    if(night){ cx.shadowColor='rgba(240,255,140,.7)'; cx.shadowBlur=r*1.2; }  // under the floodlights the ball pops
     cx.fillStyle=bg; cx.beginPath(); cx.arc(0,0,r,0,7); cx.fill(); cx.restore();
   }
   // vignette + chair rail
-  const vg=cx.createRadialGradient(W/2,H*0.45,H*0.35,W/2,H*0.45,H*0.95); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,.18)');
+  const vg=cx.createRadialGradient(W/2,H*0.45,H*0.35,W/2,H*0.45,H*0.95); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,night?'rgba(0,0,0,.38)':'rgba(0,0,0,.18)');
   cx.fillStyle=vg; cx.fillRect(0,0,W,H);
   cx.fillStyle='#16221B'; cx.fillRect(0,H-16,W,16);
   cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(0,H-16,W,2);
@@ -357,26 +378,33 @@ function drawScene(t){
   const total = S.mode==='daily' ? DAILY_N : T.calls;
   cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(`CALL ${Math.min(S.call,total)} OF ${total}`, W-10, H-5);
 }
-function drawCourt(T, hz, match){ // the whole doubles court, from any seat
+function drawCourt(T, hz, match, cond){ // the whole doubles court, from any seat, in the match conditions
   const L=-SINGLES_W, BW=LINE_W, DL=L-ALLEY, DR=ALLEY+LINE_W, across=cam.yaw!==0;  // DL..DR: outer edges of the doubles sidelines
   // nothing behind the judge is drawn: facing down the court that means y < yN, facing across it x > cam.x-1.2
   const yN = across ? -15 : cam.y+1.2, yF=60, y0=Math.max(0,yN);
-  if(across) poly([[-25,-15],[cam.x-1.2,-15],[cam.x-1.2,yF],[-25,yF]], T.out);
-  else poly([[-20,yN],[14,yN],[14,yF],[-20,yF]], T.out);
-  poly([[DL,y0],[DR,y0],[DR,FAR_BASE],[DL,FAR_BASE]], T.court);
+  const night = cond==='night', out = night ? shade(T.out,0.6) : T.out;   // floodlights: the court is lit, its surrounds fall away
+  const line = cond==='late' ? mix(T.line, T.court, 0.35) : T.line;      // low sun: washed-out lines
+  if(across) poly([[-25,-15],[cam.x-1.2,-15],[cam.x-1.2,yF],[-25,yF]], out);
+  else poly([[-20,yN],[14,yN],[14,yF],[-20,yF]], out);
+  poly([[DL,y0],[DR,y0],[DR,FAR_BASE],[DL,FAR_BASE]], night ? shade(T.court,1.06) : T.court);
+  if(cond==='damp') poly([[DL,y0],[DR,y0],[DR,FAR_BASE],[DL,FAR_BASE]], 'rgba(10,40,25,.12)');  // wet sheen
   if(T.surf==='Clay'){ for(let y=0;y<FAR_BASE;y+=0.6) if(y>=y0) poly([[DL,y],[DR,y],[DR,y+0.25],[DL,y+0.25]],'rgba(255,255,255,.04)'); }
   if(T.surf==='Grass'){ for(let y=0;y<FAR_BASE;y+=2) if(y>=y0) poly([[DL,y],[DR,y],[DR,y+1],[DL,y+1]],'rgba(255,255,255,.06)'); }
   const hz2=cx.createLinearGradient(0,hz,0,H); hz2.addColorStop(0,'rgba(255,255,255,.28)'); hz2.addColorStop(0.35,'rgba(255,255,255,0)');
   cx.fillStyle=hz2; cx.fillRect(0,hz,W,H-hz);
   // baselines across the full doubles width; near baseline outer edge at y=0, running into the court to y=BW
-  if(yN<0) poly([[DL,0],[DR,0],[DR,BW],[DL,BW]], T.line);
-  poly([[DL,FAR_BASE],[DR,FAR_BASE],[DR,FAR_BASE+0.1],[DL,FAR_BASE+0.1]], T.line);
+  if(yN<0) poly([[DL,0],[DR,0],[DR,BW],[DL,BW]], line);
+  poly([[DL,FAR_BASE],[DR,FAR_BASE],[DR,FAR_BASE+0.1],[DL,FAR_BASE+0.1]], line);
   // singles and doubles sidelines, both sides
-  for(const x of [0, L, ALLEY, DL]) poly([[x,y0],[x+LINE_W,y0],[x+LINE_W,FAR_BASE+0.1],[x,FAR_BASE+0.1]], T.line);
+  for(const x of [0, L, ALLEY, DL]) poly([[x,y0],[x+LINE_W,y0],[x+LINE_W,FAR_BASE+0.1],[x,FAR_BASE+0.1]], line);
   // service lines (singles width) and centre service line
-  poly([[L,SVC1],[LINE_W,SVC1],[LINE_W,SVC1+0.05],[L,SVC1+0.05]], T.line);
-  poly([[L,SVC2],[LINE_W,SVC2],[LINE_W,SVC2+0.05],[L,SVC2+0.05]], T.line);
-  poly([[CENTRE,SVC1],[CENTRE+0.05,SVC1],[CENTRE+0.05,SVC2],[CENTRE,SVC2]], T.line);
+  poly([[L,SVC1],[LINE_W,SVC1],[LINE_W,SVC1+0.05],[L,SVC1+0.05]], line);
+  poly([[L,SVC2],[LINE_W,SVC2],[LINE_W,SVC2+0.05],[L,SVC2+0.05]], line);
+  poly([[CENTRE,SVC1],[CENTRE+0.05,SVC1],[CENTRE+0.05,SVC2],[CENTRE,SVC2]], line);
+  // late afternoon: the shadow of the stands falls across the court in a long diagonal band (court area only, so it is
+  // always in front of the judge)
+  if(cond==='late'){ const yl=x=>-2-0.9*(x-6); poly([[DR,yl(DR)],[DR,yl(DR)+4],[DL,yl(DL)+4],[DL,yl(DL)]], 'rgba(15,20,35,.30)'); }
+  if(night){ const gl=cx.createRadialGradient(W/2,H*0.6,0,W/2,H*0.6,W*0.7); gl.addColorStop(0,'rgba(255,255,235,.10)'); gl.addColorStop(1,'rgba(255,255,235,0)'); cx.fillStyle=gl; cx.fillRect(0,0,W,H); }
   // net sagging from 1.07 m at the posts to 0.914 m at the centre: singles sticks or doubles posts, 0.914 m outside the lines
   const pl = match==='doubles' ? DL-0.914 : L-0.95, pr = match==='doubles' ? DR+0.914 : 0.95;
   poly([[pl,NET_Y,0],[pr,NET_Y,0],[pr,NET_Y,1.07],[CENTRE,NET_Y,0.914],[pl,NET_Y,1.07]], across ? 'rgba(20,30,40,.2)' : 'rgba(20,30,40,.5)');
@@ -398,7 +426,8 @@ function newBall(){
   const ang=rnd(T.angle*0.4,T.angle)*(R()<0.5?-1:1), vx=ang*Math.abs(vy);
   const len=Math.hypot(vx,vy), ux=vx/len, uy=vy/len;
   // half-extent of the elongated mark across the judged line
-  const ext = V.axis==='x' ? Math.hypot(MARK_L/2*ux, MARK_W/2*uy) : Math.hypot(MARK_L/2*uy, MARK_W/2*ux);
+  const markL = MARK_L*(CONDITIONS[S.cond].skid||1);  // damp grass: the ball skids further, the mark is longer
+  const ext = V.axis==='x' ? Math.hypot(markL/2*ux, MARK_W/2*uy) : Math.hypot(markL/2*uy, MARK_W/2*ux);
   // margin between the mark's inner edge and the line's outer edge: negative = in, positive = out
   const m = R()<0.22 ? rnd(0.06,0.22)*(R()<0.5?-1:1) : rnd(T.margin[0],T.margin[1])*(R()<0.5?-1:1);
   // the line's outer edge is V.line; out is x > V.line (sideline) or y < V.line (baseline, service line). In a singles
@@ -406,7 +435,7 @@ function newBall(){
   const xL = V.axis==='x' ? V.line+m+ext : along, yL = V.axis==='x' ? along : V.line-m-ext;
   setPitch(fwd(xL,yL)+V.aim);  // centre the view just past the landing spot on the line
   const a=0.21*Math.abs(vy), spawn=14;
-  ball={ xL, yL, vx, vy, a, b:0.55*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, ext, seat:S.seat, view, geo:V, match:S.match, flip:!!seat.flip, m, isIn:m<0, squash:1 };
+  ball={ xL, yL, vx, vy, a, b:0.55*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, ext, markL, cond:S.cond, seat:S.seat, view, geo:V, match:S.match, flip:!!seat.flip, m, isIn:m<0, squash:1 };
   trail=[];
 }
 const SQUASH = 0.045;  // seconds the flattened ball shows at the bounce
@@ -420,7 +449,7 @@ function stepBall(t){
   else { const tf = t>=SQUASH ? t-SQUASH : t;
     b.x=b.xL+b.vx*tf; b.y=b.yL+b.vy*tf;
     b.z = tf<0 ? -b.a*tf : Math.max(0, b.b*tf-0.5*G*tf*tf); }
-  b.squash = bounce ? 1.35 : 1;
+  b.squash = bounce ? (b.cond==='damp' ? 1.55 : 1.35) : 1;
   b.vis = fwd(b.x,b.y)-fwd(cam.x,cam.y) > 0.4;
   trail.push({x:b.x,y:b.y,z:b.z}); if(trail.length>4) trail.shift();
 }
@@ -584,7 +613,7 @@ function drawEagle(c){
   }
   // mark
   g.save(); g.translate(X(b.xL),Y(b.yL)); g.rotate(Math.atan2(-b.uy,b.ux)+Math.PI/2);
-  g.beginPath(); g.ellipse(0,0,MARK_W/2*sc,MARK_L/2*sc,0,0,7);
+  g.beginPath(); g.ellipse(0,0,MARK_W/2*sc,b.markL/2*sc,0,0,7);
   g.fillStyle='rgba(214,226,58,.85)'; g.fill(); g.lineWidth=3; g.strokeStyle='#16221B'; g.stroke(); g.restore();
   // measurement between the mark's inner edge and the line's outer edge
   g.strokeStyle='#16221B'; g.lineWidth=1.5; g.setLineDash([5,4]);
@@ -741,10 +770,11 @@ function seatDiagram(id, match){
     <circle cx="${cx0}" cy="${cy0}" r="7" fill="var(--ball)" opacity=".5"/><circle cx="${cx0}" cy="${cy0}" r="4" fill="var(--navy)"/>
   </svg><span class="hint">${cap(match)} · you judge the ${judged}</span>`;
 }
-function previewSeat(seat, match){ S.seat=seat; S.match=match; S.call=0; newBall(); ball.vis=false; drawScene(performance.now()/1000); }
+function previewSeat(seat, match, cond){ S.seat=seat; S.match=match; S.cond=cond; S.call=0; newBall(); ball.vis=false; drawScene(performance.now()/1000); }
 // the daily's seat and match type come from their own date-seeded streams, so the ball sequence is untouched
 function dailySeat(key){ return pickSeat(TIERS.length, seeded('ctl-daily-seat-'+key)()); }
 function dailyMatch(key){ return seeded('ctl-daily-match-'+key)()<0.5 ? 'singles' : 'doubles'; }
+function dailyCond(key){ return pickCond(DAILY_LEVELS[dailyLevel(key)].tier, seeded('ctl-daily-cond-'+key)()); }
 function dailyLevel(key){ return Math.min(DAILY_LEVELS.length-1, Math.floor(seeded('ctl-daily-level-'+key)()*DAILY_LEVELS.length)); }  // index into DAILY_LEVELS
 function rulesCard(){ sideCard(`<h2>Rules</h2>${RULES}<div class="row"><button class="btn" id="go">Back</button></div>`); }
 function statsCard(){
@@ -773,18 +803,18 @@ function nextBadge(){
   setTimeout(nextBadge, 2400);
 }
 function startTournament(){
-  const T=TIERS[S.tier], seat=pickSeat(S.tier, Math.random()), match=Math.random()<0.5?'singles':'doubles'; S.call=0; S.over=0; S.rescuedHere=false; hud();
+  const T=TIERS[S.tier], seat=pickSeat(S.tier, Math.random()), match=Math.random()<0.5?'singles':'doubles', cond=pickCond(S.tier, Math.random()); S.call=0; S.over=0; S.rescuedHere=false; hud();
   $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
   S.phase='idle';
   card(`
     <span class="tag">Tournament ${S.tier+1} of ${TIERS.length}</span>
     <h2>${T.name}</h2>
-    <div class="chips"><span class="chip"><b>${T.surf}</b></span><span class="chip"><b>${T.calls}</b> calls</span><span class="chip">up to <b>${Math.round(T.speed[1]*3.6)}</b> km/h</span><span class="chip"><b>${T.win}</b> s to call</span></div>
+    <div class="chips"><span class="chip"><b>${T.surf}</b></span><span class="chip"><b>${T.calls}</b> calls</span><span class="chip">up to <b>${Math.round(T.speed[1]*3.6)}</b> km/h</span><span class="chip"><b>${T.win}</b> s to call</span><span class="chip"><b>${CONDITIONS[cond].name}</b></span></div>
     ${seatDiagram(seat, match)}
     <div class="row"><button class="btn" id="go">Play</button></div>
   `);
   $('go').onclick=startPoint;
-  previewSeat(seat, match);
+  previewSeat(seat, match, cond);
 }
 function endTournament(){
   S.phase='idle';
@@ -860,13 +890,13 @@ function dailySave(){ try{ localStorage.setItem('ctl.daily', JSON.stringify(S.da
 function dailyIntro(){
   S.phase='idle'; S.mode='daily'; hud();
   const { key, n }=dailyToday(), seat=dailySeat(key), match=dailyMatch(key);
-  const lv=DAILY_LEVELS[dailyLevel(key)], T=TIERS[lv.tier];
-  S.tier=lv.tier; previewSeat(seat, match);
+  const lv=DAILY_LEVELS[dailyLevel(key)], T=TIERS[lv.tier], cond=dailyCond(key);
+  S.tier=lv.tier; previewSeat(seat, match, cond);
   card(`
     <span class="tag">Daily challenge</span>
     <h2>Daily #${n}</h2>
     <p>Same ${DAILY_N} balls for everyone today. One attempt.</p>
-    <div class="chips"><span class="chip"><b>${lv.name}</b> level</span><span class="chip">up to <b>${Math.round(T.speed[1]*3.6)}</b> km/h</span><span class="chip"><b>${T.win}</b> s to call</span></div>
+    <div class="chips"><span class="chip"><b>${lv.name}</b> level</span><span class="chip">up to <b>${Math.round(T.speed[1]*3.6)}</b> km/h</span><span class="chip"><b>${T.win}</b> s to call</span><span class="chip"><b>${CONDITIONS[cond].name}</b></span></div>
     ${seatDiagram(seat, match)}
     <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
   `);
@@ -877,7 +907,7 @@ function dailyStart(){
   if(dailyLoad()){ dailyResults(); return; }
   const { key, n }=dailyToday();
   R=seeded('ctl-daily-'+key);
-  S.mode='daily'; S.seat=dailySeat(key); S.match=dailyMatch(key); S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0;
+  S.mode='daily'; S.seat=dailySeat(key); S.match=dailyMatch(key); S.cond=dailyCond(key); S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0;
   S.daily={ key, n, level:dailyLevel(key), results:[], pts:0 };
   dailySave(); updateStats(st=>{ st.dailies++; });
   $('tName').textContent=`Daily #${n}`; hud();
@@ -910,7 +940,7 @@ function dailyExit(){ goHome(); }
 function goHome(){
   S.run++; cancelAnimationFrame(raf); clearTimeout(eagleTimer); resolved=true;
   if(S.mode==='career' && S.phase!=='end') saveBest();
-  S.mode='career'; S.seat='sideline-right'; S.match='singles'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; S.rescued=false; R=Math.random;
+  S.mode='career'; S.seat='sideline-right'; S.match='singles'; S.cond='day'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; S.rescued=false; R=Math.random;
   toast(''); $('quip').hidden=true; $('timer').style.width='0%'; setButtons(false);
   const T=TIERS[0]; $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
   newBall(); ball.vis=false;
