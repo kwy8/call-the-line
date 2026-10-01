@@ -158,6 +158,7 @@ footer button.confirm{color:var(--bad);font-weight:600}
     <div class="brand"><i></i>Call the Line</div>
     <div class="hud">
       <div><div class="k">Score</div><div class="v" id="score">0</div></div>
+      <div><div class="k">Call</div><div class="v" id="callNo">–</div></div>
       <div><div class="k">Streak</div><div class="v" id="streak">0</div></div>
       <div><div class="k">Best</div><div class="v" id="best">0</div></div>
       <div><div class="k">Overrules</div><div class="strikes" id="strikes"><i></i><i></i><i></i></div></div>
@@ -539,7 +540,7 @@ function startPoint(){
   newBall(); callWindow=T.win; resolved=false;
   $('timer').style.width='100%'; setButtons(false); hideOverlay(); toast('');
   clearTimeout(quipTimer); $('quip').hidden=true;
-  S.phase='flight'; tStart=performance.now(); cancelAnimationFrame(raf); raf=requestAnimationFrame(loop);
+  S.phase='flight'; tStart=performance.now(); cancelAnimationFrame(raf); raf=requestAnimationFrame(loop); hud();
 }
 function setButtons(on){ $('btnIn').disabled=!on; $('btnOut').disabled=!on; $('rulesBtn').disabled=on; $('statsBtn').disabled=on; }
 function makeCall(c){ if(S.phase!=='window'||resolved) return; resolve(c,(performance.now()-callT)/1000); }
@@ -1051,6 +1052,8 @@ function saveBest(){
 }
 function hud(){
   $('score').textContent=S.score.toLocaleString(); $('streak').textContent=S.streak; $('best').textContent=S.best.toLocaleString();
+  // this call out of the tournament's (or the daily's) total, counting the ball in play; a dash before the first call
+  $('callNo').textContent = S.call ? `${S.call}/${S.mode==='daily'?DAILY_N:TIERS[S.tier].calls}` : '–';
   [...$('strikes').children].forEach((i,k)=>i.classList.toggle('hit',k<S.over));
   $('strikes').parentElement.hidden = S.mode==='daily';
 }
