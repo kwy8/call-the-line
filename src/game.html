@@ -201,7 +201,7 @@ footer button.confirm{color:var(--bad);font-weight:600}
 
   <footer>
     <span id="homeWrap" hidden><button id="home" type="button">Home</button></span>
-    <span>Ball 6.7 cm · line 5 cm</span>
+    <span id="dims">Ball 6.7 cm · line 5 cm</span>
   </footer>
 </div>
 
@@ -210,47 +210,78 @@ footer button.confirm{color:var(--bad);font-weight:600}
 'use strict';
 // Daily leaderboard API: the Cloudflare Worker in worker/. The game is fully playable when it can't be reached.
 const API_BASE = 'https://api.calltheline.site';
+
+// ---------- Sport: everything tennis-specific, in one place ----------
+// Court in metres: x runs across the court, y along it from the outer edge of the near baseline (y = 0); the right
+// singles sideline is at x = 0 and the court lies at x < 0. The rest of the script reads these through the short
+// names just below.
+const SPORT = {
+  court: {
+    length: 23.77,                       // near baseline outer edge to the far baseline
+    net: 11.885,                         // y of the net
+    serviceNear: 5.485, serviceFar: 18.285,
+    singlesWidth: 8.23, centre: -4.115,  // centre service line at x = -4.115
+    alley: 1.37,                         // doubles sideline this far outside each singles sideline
+    lineWidth: 0.05, farBaselineWidth: 0.1,
+  },
+  net: { postHeight: 1.07, centreHeight: 0.914, tapeAtPost: 1.12, tapeAtCentre: 0.96, postTop: 1.14, postHalfWidth: 0.04,
+         postOutside: 0.914, singlesStick: 0.95 },   // doubles posts 0.914 m outside the doubles lines; singles sticks at 0.95 m
+  ball: { radius: 0.0335, markLength: 0.11, markWidth: 0.072,
+          descent: 0.21, bounce: 0.55 },             // falling speed and rebound, as fractions of the ball's court speed
+  judge: { eye: 1.1, behind: 2.6, aim: 1.5 },        // eye height; distance behind the end of the line; aim past the landing spot
+  // The court is symmetric, so a left-hand seat sees exactly the right-hand view in a mirror (flip), and the far baseline
+  // seen from behind looks the same as the near one (far). Play always runs in the right/near frame; only the picture flips.
+  // line(match) names the exact line judged, e.g. "right doubles sideline".
+  seats: {
+    'sideline-right':     { name:'Right sideline',     view:'side',             line: m => `right ${m} sideline` },
+    'sideline-left':      { name:'Left sideline',      view:'side', flip:true,  line: m => `left ${m} sideline` },
+    'baseline-near':      { name:'Near baseline',      view:'base',             line: () => 'near baseline' },
+    'baseline-far':       { name:'Far baseline',       view:'base', far:true,   line: () => 'far baseline' },
+    'service-line-right': { name:'Right service line', view:'svc',              line: () => 'near service line, from the right' },
+    'service-line-left':  { name:'Left service line',  view:'svc', flip:true,   line: () => 'near service line, from the left' },
+  },
+  surfaces: { clay:'Clay', greenHard:'Green hard', blueHard:'Blue hard', grass:'Grass' },
+  areas: { court:'Court', alley:'Alley', serviceBox:'Service box' },   // labels on the Eagle-Eye review
+  calls: { in:'In', out:'Out', long:'Long' },                          // the call words; "long" is out past a baseline or service line
+  quotes: ['You cannot be serious.','Are you watching the same match?','Were you even looking?','Get your eyes checked.',
+    'Is that chair comfortable?','Wake up, line!','How much are they paying you?','Unbelievable. Just unbelievable.'],
+  umpire: 'Good eyes.',
+};
+const { length: FAR_BASE, net: NET_Y, serviceNear: SVC1, serviceFar: SVC2, centre: CENTRE, singlesWidth: SINGLES_W,
+        alley: ALLEY, lineWidth: LINE_W } = SPORT.court;
+const { radius: BALL_R, markLength: MARK_L, markWidth: MARK_W } = SPORT.ball;
+const SEATS = SPORT.seats, SURF = SPORT.surfaces, CALL = SPORT.calls, QUOTES = SPORT.quotes, J = SPORT.judge;
+const G = 9.81;
+
 // ---------- Tournament ladder ----------
 const TIERS = [
-  {name:'Riverside Club Open',  short:'Club',   surf:'Clay',       calls:10, court:'#C6673C', out:'#B65C34', line:'#F3EDE4', stands:'#CFC7BB', speed:[20,25], near:[2.5,5.5],  margin:[0.02,0.12],  win:2.0,  angle:0.05},
-  {name:'Harbour Challenger',   short:'Chall.', surf:'Green hard', calls:10, court:'#4C8A55', out:'#7C9F60', line:'#FFFFFF', stands:'#C9D0C4', speed:[24,29], near:[3.0,7.0],  margin:[0.012,0.09], win:1.7,  angle:0.07},
-  {name:'Metro Open 250',       short:'250',    surf:'Blue hard',  calls:10, court:'#3E7CBB', out:'#4F8F5F', line:'#FFFFFF', stands:'#C4CDD6', speed:[28,34], near:[3.5,8.5],  margin:[0.008,0.06], win:1.45, angle:0.09},
-  {name:'Capital Masters 1000', short:'1000',   surf:'Blue hard',  calls:12, court:'#2E67A4', out:'#2B4F77', line:'#FFFFFF', stands:'#BEC7D1', speed:[32,40], near:[4.0,10.0], margin:[0.005,0.04], win:1.25, angle:0.11},
-  {name:'The Grand Slam Final', short:'Slam',   surf:'Grass',      calls:12, court:'#4E8C3E', out:'#5D9C4A', line:'#FFFFFF', stands:'#C8CFC2', speed:[36,44], near:[4.5,11.0], margin:[0.002,0.03], win:1.05, angle:0.13},
+  {name:'Riverside Club Open',  short:'Club',   surf:SURF.clay,       calls:10, court:'#C6673C', out:'#B65C34', line:'#F3EDE4', stands:'#CFC7BB', speed:[20,25], near:[2.5,5.5],  margin:[0.02,0.12],  win:2.0,  angle:0.05},
+  {name:'Harbour Challenger',   short:'Chall.', surf:SURF.greenHard, calls:10, court:'#4C8A55', out:'#7C9F60', line:'#FFFFFF', stands:'#C9D0C4', speed:[24,29], near:[3.0,7.0],  margin:[0.012,0.09], win:1.7,  angle:0.07},
+  {name:'Metro Open 250',       short:'250',    surf:SURF.blueHard,  calls:10, court:'#3E7CBB', out:'#4F8F5F', line:'#FFFFFF', stands:'#C4CDD6', speed:[28,34], near:[3.5,8.5],  margin:[0.008,0.06], win:1.45, angle:0.09},
+  {name:'Capital Masters 1000', short:'1000',   surf:SURF.blueHard,  calls:12, court:'#2E67A4', out:'#2B4F77', line:'#FFFFFF', stands:'#BEC7D1', speed:[32,40], near:[4.0,10.0], margin:[0.005,0.04], win:1.25, angle:0.11},
+  {name:'The Grand Slam Final', short:'Slam',   surf:SURF.grass,      calls:12, court:'#4E8C3E', out:'#5D9C4A', line:'#FFFFFF', stands:'#C8CFC2', speed:[36,44], near:[4.5,11.0], margin:[0.002,0.03], win:1.05, angle:0.13},
 ];
 // Daily challenge: DAILY_N balls seeded by the local calendar date, all at one player level (ball speeds, margins and
 // call window of one tournament), which the date also picks.
 const DAILY_N = 20, DAILY_EPOCH = [2026,9,30]; // daily #1
 const DAILY_LEVELS = [ { name:'Club', tier:0 }, { name:'National', tier:2 }, { name:'Pro', tier:4 } ];
-const BALL_R = 0.0335, LINE_W = 0.05, MARK_L = 0.11, MARK_W = 0.072, G = 9.81;
-const FAR_BASE = 23.77, NET_Y = 11.885, SVC1 = 5.485, SVC2 = 18.285, CENTRE = -4.115, SINGLES_W = 8.23;
 // Seat geometry: how a seat is simulated and measured, for a singles or doubles match. axis = the coordinate the margin
 // is measured on, line = outer edge of the judged line on that axis, cam = judge's eye position (x, y), yaw = which way
 // the judge faces (0 = down the court, -90 degrees = across it), aim = metres past the landing spot the camera centres
 // on; for lines across the court, end = inner edge of the right-hand end of the judged length and len = its length.
-// Every judge sits 2.6 m beyond the end of their line, in line with it, looking along it:
+// Every judge sits J.behind (2.6 m) beyond the end of their line, in line with it, looking along it:
 //   side: end of the right sideline (singles, or doubles 1.37 m further out), looking down the court (in/out across x)
 //   base: past the right end of the near baseline, looking across the court (long/in along y); in doubles the judged
 //         length runs to the doubles sidelines
 //   svc:  past the right end of the near service line, looking across the court (long/in along y); the service box is
 //         the same in singles and doubles
-const ACROSS = -Math.PI/2, ALLEY = 1.37;
+const ACROSS = -Math.PI/2;
 function seatGeom(view, match){
   const d = match==='doubles' ? ALLEY : 0;
-  if(view==='side') return { axis:'x', line:LINE_W+d, cam:[LINE_W/2+d, -2.6], yaw:0, aim:1.5 };
-  if(view==='base') return { axis:'y', line:0, cam:[LINE_W+d+2.6, LINE_W/2], yaw:ACROSS, aim:1.5, end:d, len:SINGLES_W+2*d };
-  return { axis:'y', line:SVC1, cam:[LINE_W+2.6, SVC1+LINE_W/2], yaw:ACROSS, aim:1.5, end:0, len:SINGLES_W };
+  if(view==='side') return { axis:'x', line:LINE_W+d, cam:[LINE_W/2+d, -J.behind], yaw:0, aim:J.aim };
+  if(view==='base') return { axis:'y', line:0, cam:[LINE_W+d+J.behind, LINE_W/2], yaw:ACROSS, aim:J.aim, end:d, len:SINGLES_W+2*d };
+  return { axis:'y', line:SVC1, cam:[LINE_W+J.behind, SVC1+LINE_W/2], yaw:ACROSS, aim:J.aim, end:0, len:SINGLES_W };
 }
-// The court is symmetric, so a left-hand seat sees exactly the right-hand view in a mirror (flip), and the far baseline
-// seen from behind looks the same as the near one (far). Play always runs in the right/near frame; only the picture flips.
-const SEATS = {
-  'sideline-right':     { name:'Right sideline',     view:'side' },
-  'sideline-left':      { name:'Left sideline',      view:'side', flip:true },
-  'baseline-near':      { name:'Near baseline',      view:'base' },
-  'baseline-far':       { name:'Far baseline',       view:'base', far:true },
-  'service-line-right': { name:'Right service line', view:'svc' },
-  'service-line-left':  { name:'Left service line',  view:'svc', flip:true },
-};
 // Match conditions, one per tournament (random) or per daily (from the date). Small canvas changes only:
 //   late:  a long shadow band across the court, a longer ball shadow, lower-contrast lines
 //   night: dark sky and stands, floodlit court, brighter ball
@@ -261,14 +292,13 @@ const CONDITIONS = {
   night: { name:'Night session' },
   damp:  { name:'Damp grass', grassOnly:true, skid:1.2 },
 };
-function pickCond(tier, r){ const pool=Object.keys(CONDITIONS).filter(k=>!CONDITIONS[k].grassOnly||TIERS[tier].surf==='Grass'); return pool[Math.min(pool.length-1,Math.floor(r*pool.length))]; }
+function pickCond(tier, r){ const pool=Object.keys(CONDITIONS).filter(k=>!CONDITIONS[k].grassOnly||TIERS[tier].surf===SURF.grass); return pool[Math.min(pool.length-1,Math.floor(r*pool.length))]; }
 function mix(a, b, t){ // blend two #rrggbb colours
   const p=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)), A=p(a), B=p(b);
   return `rgb(${A.map((v,i)=>Math.round(v+(B[i]-v)*t)).join(',')})`;
 }
 // The exact line a seat judges in a match, e.g. "right doubles sideline"
-function lineName(id, match){ const s=SEATS[id];
-  return s.view==='side' ? `${s.flip?'left':'right'} ${match} sideline` : s.view==='base' ? `${s.far?'far':'near'} baseline` : `near service line, from the ${s.flip?'left':'right'}`; }
+function lineName(id, match){ return SEATS[id].line(match); }
 const cap = t => t[0].toUpperCase()+t.slice(1);
 // Tournaments 1-2 (tiers 0-1): sideline and baseline seats; service-line seats from tournament 3
 function pickSeat(tier, r){ const pool=Object.keys(SEATS).filter(id=>tier>=2||SEATS[id].view!=='svc'); return pool[Math.min(pool.length-1,Math.floor(r*pool.length))]; }
@@ -323,7 +353,7 @@ function fit(){
 fit(); window.addEventListener('resize', fit); window.addEventListener('orientationchange', ()=>setTimeout(fit,150));
 
 // ---------- Camera: in line with the sideline, eye height 1.1 m ----------
-const cam = { x:LINE_W/2, y:-2.6, z:1.1, pitch:0, yaw:0, flip:false };
+const cam = { x:LINE_W/2, y:-J.behind, z:J.eye, pitch:0, yaw:0, flip:false };
 const fwd = (x,y) => x*Math.sin(cam.yaw)+y*Math.cos(cam.yaw);   // position along the direction the judge faces
 // tilt the camera down to a point at forward position f (for yaw 0 that is simply a y coordinate)
 function setPitch(f){ const tall=H>W; cam.pitch=Math.atan2(cam.z, (tall?f*0.85:f)-fwd(cam.x,cam.y)); }
@@ -396,7 +426,7 @@ function drawScene(t){
   cx.fillStyle=vg; cx.fillRect(0,0,W,H);
   cx.fillStyle='#16221B'; cx.fillRect(0,H-16,W,16);
   cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(0,H-16,W,2);
-  cx.fillStyle='#D6E23A'; cx.font='800 10px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('LINE JUDGE · '+(ball?lineName(ball.seat,ball.match):'right singles sideline').toUpperCase(), 10, H-5);
+  cx.fillStyle='#D6E23A'; cx.font='800 10px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('LINE JUDGE · '+(ball?lineName(ball.seat,ball.match):lineName('sideline-right','singles')).toUpperCase(), 10, H-5);
   const total = S.mode==='daily' ? DAILY_N : T.calls;
   cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(`CALL ${Math.min(S.call,total)} OF ${total}`, W-10, H-5);
 }
@@ -410,30 +440,31 @@ function drawCourt(T, hz, match, cond){ // the whole doubles court, from any sea
   else poly([[-20,yN],[14,yN],[14,yF],[-20,yF]], out);
   poly([[DL,y0],[DR,y0],[DR,FAR_BASE],[DL,FAR_BASE]], night ? shade(T.court,1.06) : T.court);
   if(cond==='damp') poly([[DL,y0],[DR,y0],[DR,FAR_BASE],[DL,FAR_BASE]], 'rgba(10,40,25,.12)');  // wet sheen
-  if(T.surf==='Clay'){ for(let y=0;y<FAR_BASE;y+=0.6) if(y>=y0) poly([[DL,y],[DR,y],[DR,y+0.25],[DL,y+0.25]],'rgba(255,255,255,.04)'); }
-  if(T.surf==='Grass'){ for(let y=0;y<FAR_BASE;y+=2) if(y>=y0) poly([[DL,y],[DR,y],[DR,y+1],[DL,y+1]],'rgba(255,255,255,.06)'); }
+  if(T.surf===SURF.clay){ for(let y=0;y<FAR_BASE;y+=0.6) if(y>=y0) poly([[DL,y],[DR,y],[DR,y+0.25],[DL,y+0.25]],'rgba(255,255,255,.04)'); }
+  if(T.surf===SURF.grass){ for(let y=0;y<FAR_BASE;y+=2) if(y>=y0) poly([[DL,y],[DR,y],[DR,y+1],[DL,y+1]],'rgba(255,255,255,.06)'); }
   const hz2=cx.createLinearGradient(0,hz,0,H); hz2.addColorStop(0,'rgba(255,255,255,.28)'); hz2.addColorStop(0.35,'rgba(255,255,255,0)');
   cx.fillStyle=hz2; cx.fillRect(0,hz,W,H-hz);
   // baselines across the full doubles width; near baseline outer edge at y=0, running into the court to y=BW
   if(yN<0) poly([[DL,0],[DR,0],[DR,BW],[DL,BW]], line);
-  poly([[DL,FAR_BASE],[DR,FAR_BASE],[DR,FAR_BASE+0.1],[DL,FAR_BASE+0.1]], line);
+  const FBW=SPORT.court.farBaselineWidth;
+  poly([[DL,FAR_BASE],[DR,FAR_BASE],[DR,FAR_BASE+FBW],[DL,FAR_BASE+FBW]], line);
   // singles and doubles sidelines, both sides
-  for(const x of [0, L, ALLEY, DL]) poly([[x,y0],[x+LINE_W,y0],[x+LINE_W,FAR_BASE+0.1],[x,FAR_BASE+0.1]], line);
+  for(const x of [0, L, ALLEY, DL]) poly([[x,y0],[x+LINE_W,y0],[x+LINE_W,FAR_BASE+FBW],[x,FAR_BASE+FBW]], line);
   // service lines (singles width) and centre service line
-  poly([[L,SVC1],[LINE_W,SVC1],[LINE_W,SVC1+0.05],[L,SVC1+0.05]], line);
-  poly([[L,SVC2],[LINE_W,SVC2],[LINE_W,SVC2+0.05],[L,SVC2+0.05]], line);
-  poly([[CENTRE,SVC1],[CENTRE+0.05,SVC1],[CENTRE+0.05,SVC2],[CENTRE,SVC2]], line);
+  poly([[L,SVC1],[LINE_W,SVC1],[LINE_W,SVC1+LINE_W],[L,SVC1+LINE_W]], line);
+  poly([[L,SVC2],[LINE_W,SVC2],[LINE_W,SVC2+LINE_W],[L,SVC2+LINE_W]], line);
+  poly([[CENTRE,SVC1],[CENTRE+LINE_W,SVC1],[CENTRE+LINE_W,SVC2],[CENTRE,SVC2]], line);
   // late afternoon: the shadow of the stands falls across the court in a long diagonal band (court area only, so it is
   // always in front of the judge)
   if(cond==='late'){ const yl=x=>-2-0.9*(x-6); poly([[DR,yl(DR)],[DR,yl(DR)+4],[DL,yl(DL)+4],[DL,yl(DL)]], 'rgba(15,20,35,.30)'); }
   if(night){ const gl=cx.createRadialGradient(W/2,H*0.6,0,W/2,H*0.6,W*0.7); gl.addColorStop(0,'rgba(255,255,235,.10)'); gl.addColorStop(1,'rgba(255,255,235,0)'); cx.fillStyle=gl; cx.fillRect(0,0,W,H); }
-  // net sagging from 1.07 m at the posts to 0.914 m at the centre: singles sticks or doubles posts, 0.914 m outside the lines
-  const pl = match==='doubles' ? DL-0.914 : L-0.95, pr = match==='doubles' ? DR+0.914 : 0.95;
-  poly([[pl,NET_Y,0],[pr,NET_Y,0],[pr,NET_Y,1.07],[CENTRE,NET_Y,0.914],[pl,NET_Y,1.07]], across ? 'rgba(20,30,40,.2)' : 'rgba(20,30,40,.5)');
-  poly([[pl,NET_Y,1.07],[CENTRE,NET_Y,0.914],[CENTRE,NET_Y,0.96],[pl,NET_Y,1.12]], '#F2F2F2');
-  poly([[CENTRE,NET_Y,0.914],[pr,NET_Y,1.07],[pr,NET_Y,1.12],[CENTRE,NET_Y,0.96]], '#F2F2F2');
-  poly([[pl-0.04,NET_Y,0],[pl+0.04,NET_Y,0],[pl+0.04,NET_Y,1.14],[pl-0.04,NET_Y,1.14]], '#2A2F33');
-  poly([[pr-0.04,NET_Y,0],[pr+0.04,NET_Y,0],[pr+0.04,NET_Y,1.14],[pr-0.04,NET_Y,1.14]], '#2A2F33');
+  // net sagging from its post height to its centre height: singles sticks, or doubles posts outside the doubles lines
+  const N=SPORT.net, pl = match==='doubles' ? DL-N.postOutside : L-N.singlesStick, pr = match==='doubles' ? DR+N.postOutside : N.singlesStick;
+  poly([[pl,NET_Y,0],[pr,NET_Y,0],[pr,NET_Y,N.postHeight],[CENTRE,NET_Y,N.centreHeight],[pl,NET_Y,N.postHeight]], across ? 'rgba(20,30,40,.2)' : 'rgba(20,30,40,.5)');
+  poly([[pl,NET_Y,N.postHeight],[CENTRE,NET_Y,N.centreHeight],[CENTRE,NET_Y,N.tapeAtCentre],[pl,NET_Y,N.tapeAtPost]], '#F2F2F2');
+  poly([[CENTRE,NET_Y,N.centreHeight],[pr,NET_Y,N.postHeight],[pr,NET_Y,N.tapeAtPost],[CENTRE,NET_Y,N.tapeAtCentre]], '#F2F2F2');
+  poly([[pl-N.postHalfWidth,NET_Y,0],[pl+N.postHalfWidth,NET_Y,0],[pl+N.postHalfWidth,NET_Y,N.postTop],[pl-N.postHalfWidth,NET_Y,N.postTop]], '#2A2F33');
+  poly([[pr-N.postHalfWidth,NET_Y,0],[pr+N.postHalfWidth,NET_Y,0],[pr+N.postHalfWidth,NET_Y,N.postTop],[pr-N.postHalfWidth,NET_Y,N.postTop]], '#2A2F33');
 }
 
 // ---------- Ball ----------
@@ -456,8 +487,8 @@ function newBall(){
   // match the doubles alley lies beyond the singles sideline, so a ball there is out
   const xL = V.axis==='x' ? V.line+m+ext : along, yL = V.axis==='x' ? along : V.line-m-ext;
   setPitch(fwd(xL,yL)+V.aim);  // centre the view just past the landing spot on the line
-  const a=0.21*Math.abs(vy), spawn=14;
-  ball={ xL, yL, vx, vy, a, b:0.55*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, ext, markL, cond:S.cond, seat:S.seat, view, geo:V, match:S.match, flip:!!seat.flip, m, isIn:m<0, squash:1 };
+  const a=SPORT.ball.descent*Math.abs(vy), spawn=14;
+  ball={ xL, yL, vx, vy, a, b:SPORT.ball.bounce*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, ext, markL, cond:S.cond, seat:S.seat, view, geo:V, match:S.match, flip:!!seat.flip, m, isIn:m<0, squash:1 };
   trail=[];
 }
 const SQUASH = 0.045;  // seconds the flattened ball shows at the bounce
@@ -562,10 +593,10 @@ function resolve(call, elapsed){
     S.streak++;
     const mult=1+Math.min(4,Math.floor(S.streak/3))*0.5, speed=Math.round(100*Math.max(0,1-elapsed/callWindow));
     const pts=Math.round((100+speed)*mult); S.score+=pts;
-    toast(call, `+${pts}`);
+    toast(CALL[call].toLowerCase(), `+${pts}`);
   }else{
     S.streak=0; if(S.mode!=='daily') S.over++;
-    toast(call===null?'No call':call, 'Overruled');
+    toast(call===null?'No call':CALL[call].toLowerCase(), 'Overruled');
   }
   if(S.mode==='daily') dailyRecord(right, call===null ? null : elapsed);
   updateStats(st=>{
@@ -573,12 +604,10 @@ function resolve(call, elapsed){
     if(right){ st.correct++; st.bestStreak=Math.max(st.bestStreak,S.streak); const mm=Math.abs(ball.m)*1000; if(st.closest===null||mm<st.closest) st.closest=mm; }
   });
   if(!right){ murmur(); quip('Player', pickQuote(), false); }
-  else if(Math.abs(ball.m)<=0.005){ chime(); quip('Umpire', 'Good eyes.', true); }
+  else if(Math.abs(ball.m)<=0.005){ chime(); quip('Umpire', SPORT.umpire, true); }
   hud();
   eagleTimer=setTimeout(()=>showEagle(right,call,elapsed), 700);
 }
-const QUOTES = ['You cannot be serious.','Are you watching the same match?','Were you even looking?','Get your eyes checked.',
-  'Is that chair comfortable?','Wake up, line!','How much are they paying you?','Unbelievable. Just unbelievable.'];
 let lastQuote=-1, quipTimer=0;
 function pickQuote(){ let i; do{ i=Math.floor(Math.random()*QUOTES.length); }while(i===lastQuote); lastQuote=i; return QUOTES[i]; }
 function quip(who, line, ump){
@@ -591,9 +620,9 @@ function toast(big, small){ const el=$('toast'); el.innerHTML = big ? `${big}<sm
 function showEagle(right, call, elapsed){
   const T=TIERS[S.tier], b=ball, mm=Math.round(Math.abs(b.m)*1000);
   const clearlyIn = b.m+2*b.ext < -LINE_W;  // the whole mark is inside the line's inner edge
-  const by = clearlyIn ? 'Well inside' : (b.isIn?`In by ${mm} mm`:`${b.geo.axis==='y'?'Long':'Out'} by ${mm} mm`);
+  const by = clearlyIn ? 'Well inside' : (b.isIn?`${CALL.in} by ${mm} mm`:`${b.geo.axis==='y'?CALL.long:CALL.out} by ${mm} mm`);
   const dist = b.view==='side' ? b.yL : Math.hypot(b.xL-cam.x, b.yL-cam.y);
-  const yours = call===null ? `No call in ${callWindow} s` : `Your call: <b>${call.toUpperCase()}</b> in ${elapsed.toFixed(2)} s`;
+  const yours = call===null ? `No call in ${callWindow} s` : `Your call: <b>${CALL[call].toUpperCase()}</b> in ${elapsed.toFixed(2)} s`;
   const last=S.call>=T.calls, sacked=S.over>=3;
   const label = S.mode==='daily' ? (S.call>=DAILY_N?'Results':'Next call') : sacked?'Continue':last?(S.tier<TIERS.length-1?'Promotion':'Finish'):'Next call';
   card(`
@@ -602,7 +631,7 @@ function showEagle(right, call, elapsed){
       <canvas id="eagle" width="340" height="340" aria-label="Review of the bounce mark"></canvas>
       <div>
         <div class="seat">${cap(lineName(b.seat,b.match))}</div>
-        <div class="verdict" style="color:${b.isIn?'var(--good)':'var(--bad)'}">${b.isIn?'In':'Out'}</div>
+        <div class="verdict" style="color:${b.isIn?'var(--good)':'var(--bad)'}">${b.isIn?CALL.in:CALL.out}</div>
         <div class="mm">${by}</div>
         <div class="yours">${yours}<br>${dist.toFixed(1)} m away · ${Math.round(Math.abs(b.vy)*3.6)} km/h</div>
       </div>
@@ -653,12 +682,13 @@ function drawEagle(c){
   g.restore();
   g.fillStyle='rgba(255,255,255,.92)'; g.fillRect(SZ/2-58,SZ-34,116,26);
   g.fillStyle=b.isIn?'#2F8F4E':'#C8402F'; g.font='800 18px "Barlow Condensed", sans-serif'; g.textAlign='center'; g.textBaseline='middle';
-  g.fillText((b.isIn?'IN':'OUT')+' · '+Math.round(Math.abs(b.m)*1000)+' mm', SZ/2, SZ-21);
+  g.fillText((b.isIn?CALL.in:CALL.out).toUpperCase()+' · '+Math.round(Math.abs(b.m)*1000)+' mm', SZ/2, SZ-21);
   g.textBaseline='alphabetic'; g.font='600 11px Barlow, sans-serif'; g.fillStyle='rgba(255,255,255,.9)';
   g.shadowColor='rgba(0,0,0,.6)'; g.shadowBlur=3;  // labels stay readable where they cross a white line
-  if(base){ g.textAlign='left'; g.fillText(b.view==='svc'?'SERVICE BOX':'COURT', 8, 16); g.fillText('OUT', 8, SZ-8); }
+  const A=SPORT.areas, up=t=>t.toUpperCase();
+  if(base){ g.textAlign='left'; g.fillText(up(b.view==='svc'?A.serviceBox:A.court), 8, 16); g.fillText(up(CALL.out), 8, SZ-8); }
   else { // singles: the alley beyond the line is court-coloured but out; doubles: the alley inside the line is in
-    const inner = b.match==='doubles' ? 'ALLEY · IN' : 'COURT', outer = b.match==='doubles' ? 'OUT' : 'ALLEY · OUT';
+    const inner = b.match==='doubles' ? up(`${A.alley} · ${CALL.in}`) : up(A.court), outer = b.match==='doubles' ? up(CALL.out) : up(`${A.alley} · ${CALL.out}`);
     const [l,r]=b.flip?[outer,inner]:[inner,outer]; g.textAlign='left'; g.fillText(l, 8, 16); g.textAlign='right'; g.fillText(r, SZ-8, 16); }
 }
 
@@ -730,8 +760,8 @@ function ladderHTML(){
   return `<div class="ladder">${TIERS.map((t,i)=>`${i?'<div class="ln"></div>':''}<div class="st ${i<S.tier?'done':i===S.tier?'now':''}"><i style="background:${t.court}"></i><span>${t.short}</span></div>`).join('')}</div>`;
 }
 const RULES = `<div class="rules">
-  <b>1</b><span>Wait for the bounce, then call <b>In</b> or <b>Out</b>. Fast calls score more.</span>
-  <b>2</b><span>If any part of the ball's mark touches the line, it's in.</span>
+  <b>1</b><span>Wait for the bounce, then call <b>${CALL.in}</b> or <b>${CALL.out}</b>. Fast calls score more.</span>
+  <b>2</b><span>If any part of the ball's mark touches the line, it's ${CALL.in.toLowerCase()}.</span>
   <b>3</b><span>Three overrules in one tournament and the cameras take your chair.</span>
 </div>`;
 function intro(){
@@ -749,9 +779,9 @@ function intro(){
         <g class="shot out"><ellipse class="dm-mark" cx="170" cy="62" rx="4" ry="2.1" fill="rgba(214,226,58,.9)" stroke="#16221B" stroke-width="1"/>
           <g class="dm-pos"><ellipse rx="5" ry="2" fill="rgba(0,0,0,.3)"/><g class="dm-h"><circle cy="-4" r="4.5" fill="#D6E23A" stroke="#A9B520" stroke-width="1"/></g></g></g>
       </svg>
-      <div class="dm-t dm-q">In or out?</div>
-      <div class="dm-t dm-a shot">In · by 2 mm</div>
-      <div class="dm-t dm-a shot out">Out · by 40 mm</div>
+      <div class="dm-t dm-q">${CALL.in} or ${CALL.out.toLowerCase()}?</div>
+      <div class="dm-t dm-a shot">${CALL.in} · by 2 mm</div>
+      <div class="dm-t dm-a shot out">${CALL.out} · by 40 mm</div>
     </div>
     <div class="start">
       <button class="btn big" id="go">Play</button>
@@ -1102,7 +1132,11 @@ $('mute').onclick=()=>{ S.muted=!S.muted; renderMute(); try{localStorage.setItem
 renderMute();
 
 // ---------- Boot ----------
-function start(){ booted=true; hud(); setPitch(6); newBall(); ball.vis=false; drawScene(0); intro(); }
+function sportText(){ // call buttons and the footer's sizes, from SPORT
+  for(const [id,word] of [['btnIn',CALL.in],['btnOut',CALL.out]]){ const t=$(id).firstChild; if(t) t.nodeValue=word; }
+  $('dims').textContent=`Ball ${(BALL_R*200).toFixed(1)} cm · line ${Math.round(LINE_W*100)} cm`;
+}
+function start(){ booted=true; sportText(); hud(); setPitch(6); newBall(); ball.vis=false; drawScene(0); intro(); }
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start();
 })();
 </script>
