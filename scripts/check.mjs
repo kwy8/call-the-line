@@ -8,7 +8,8 @@
 //   - balls in the doubles alley are out in a singles match and in in a doubles match (and both cases occur)
 //   - a baseline or service-line ball lands inside the judged length without touching a sideline
 //   - the landing spot and the judged line are on screen
-// that the leaderboard Worker's score bounds match the game's real scoring, and that the daily challenge gives identical balls, seat, match type and level for the same date, plays every ball
+// that the leaderboard Worker's score bounds match the game's real scoring, that the ghost replay and practice mode
+// behave (see that section), and that the daily challenge gives identical balls, seat, match type and level for the same date, plays every ball
 // at its level's tier, and still produces the frozen DAILY_FIXTURE for 2026-10-01 below. Exits 1 on any failure.
 import { readFileSync } from 'node:fs';
 import { maxScore, minScore, BALLS } from '../worker/src/index.js';
@@ -35,13 +36,15 @@ const END = /\}\)\(\);\s*$/;  // the game script is one IIFE; expose its interna
 if (!END.test(match[1])) fail('src/game.html script no longer ends with "})();"');
 const src = match[1].replace(END, `window.__ctl={ S, newBall, startPoint, resolve, dailyStart, proj, cam, SEATS,
   get ball(){ return ball; }, get W(){ return W; }, get H(){ return H; },
-  LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, DAILY_LEVELS, TIERS, CONDITIONS, pickCond };})();`);
+  LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, DAILY_LEVELS, TIERS, CONDITIONS, pickCond,
+  ST, nextStep, practiceStart, finishReplay, landDistance, get replay(){ return replay; }, get PR(){ return PR; } };})();`);
 
 // A seeded Math.random so every run checks the same balls and a failure can be reproduced.
 function mulberry32(a) { return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
 // Boot the game in a sandbox: the given local date/time, fresh localStorage, no audio, no timers, no animation frames.
-function boot(date, seed = 1) {
+// Pass an array as `frames` to collect animation-frame callbacks instead, and run them yourself with a fake timestamp.
+function boot(date, seed = 1, frames = null) {
   const noop = () => {};
   const ctx = new Proxy({}, { get: (_, k) => (k === 'createLinearGradient' || k === 'createRadialGradient') ? () => ({ addColorStop: noop }) : noop, set: () => true });
   const els = {};
@@ -56,9 +59,10 @@ function boot(date, seed = 1) {
   const SeededMath = Object.create(Math); SeededMath.random = mulberry32(seed);
   const globals = { window, document: { getElementById: el, addEventListener: noop, createDocumentFragment: () => ({ appendChild: noop }) },
     localStorage: { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } },
-    performance: { now: () => 0 }, requestAnimationFrame: noop, cancelAnimationFrame: noop, setTimeout: noop, clearTimeout: noop, setInterval: noop, clearInterval: noop,
+    performance: { now: () => 0 }, requestAnimationFrame: frames ? fn => frames.push(fn) : noop, cancelAnimationFrame: noop, setTimeout: noop, clearTimeout: noop, setInterval: noop, clearInterval: noop,
     location: { hash: '', href: 'https://example.test/' }, navigator: {}, Date: FakeDate, Math: SeededMath };
   new Function(...Object.keys(globals), src)(...Object.values(globals));
+  window.__ctl.els = els; window.__ctl.store = store;
   return window.__ctl;
 }
 
@@ -200,6 +204,63 @@ check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1
       + `Every player's daily balls for a date would change, so this must be deliberate; if it is, regenerate the fixture and say so in the commit.`);
     for (const x of diffs.slice(0, 10)) failures.push('  ' + x);
   }
+}
+
+// ---------- ghost replay and practice ----------
+{
+  const frames = [], g = boot('2026-10-01T12:00:00', 21, frames), { S, els } = g;
+  let ts = 1000;
+  const run = (ms) => { for (const end = ts + ms; ts < end;) { ts += 16; for (const f of frames.splice(0)) f(ts); } };   // ~60 fps
+  const reviewUp = () => els.card.innerHTML.includes('class="eagle"');
+  const callBall = right => { S.phase = 'window'; g.resolve(right === g.ball.isIn ? 'in' : 'out', 0.4); };
+
+  // tournament: a correct call skips the replay; a wrong call or no call gets it
+  S.mode = 'career'; S.tier = 0; S.call = 0; g.startPoint(); frames.length = 0;
+  callBall(true);  check(!g.replay, 'tournament: a correct call must go straight to the review, without a replay');
+  S.phase = 'review'; g.nextStep(); frames.length = 0;
+  callBall(false); check(!!g.replay, 'tournament: a wrong call must get the replay');
+  g.finishReplay(); check(!g.replay && reviewUp(), 'skipping the replay shows the review card');
+  S.phase = 'review'; g.nextStep(); frames.length = 0;
+  S.phase = 'window'; g.resolve(null, 2); check(!!g.replay, 'tournament: no call must get the replay');
+
+  // the replay itself: last 0.5 s (or the whole flight) at quarter speed, mark at touchdown, review 0.4 s later,
+  // the called ball untouched
+  const b = g.ball, before = JSON.stringify([b.xL, b.yL, b.m, b.isIn, b.vx, b.vy]), span = -g.replay.t0;
+  check(Math.abs(span - Math.min(0.5, -b.t0)) < 1e-9, `replay starts ${span.toFixed(3)} s before the bounce, expected ${Math.min(0.5, -b.t0).toFixed(3)}`);
+  els.card.innerHTML = ''; const start = ts + 16;
+  let touch = null, card = null;
+  while (card === null && ts < start + 4000) { run(16); if (touch === null && g.replay && g.replay.mark) touch = ts; if (reviewUp()) card = ts; }
+  check(touch !== null && Math.abs((touch - start) - span / 0.25 * 1000) <= 20, `touchdown ${touch - start} ms into the replay, expected ${(span / 0.25 * 1000).toFixed(0)} (quarter speed)`);
+  check(card !== null && Math.abs((card - touch) - 400) <= 20, `review card ${card - touch} ms after touchdown, expected 400`);
+  check(JSON.stringify([b.xL, b.yL, b.m, b.isIn, b.vx, b.vy]) === before && g.ball === b, 'the replay must use and leave the called ball unchanged');
+
+  // daily: the same rule
+  S.mode = 'daily'; S.daily = { key: '2026-10-01', n: 2, level: 1, results: [], pts: 0 }; S.call = 0; g.startPoint(); frames.length = 0;
+  callBall(true);  check(!g.replay, 'daily: a correct call must go straight to the review');
+  S.phase = 'review'; g.nextStep(); frames.length = 0;
+  callBall(false); check(!!g.replay, 'daily: a wrong call must get the replay');
+  g.finishReplay();
+}
+{
+  // practice: replay on every ball, endless, no timer, no score, nothing saved, accuracy tallied by landing distance
+  const frames = [], g = boot('2026-10-01T12:00:00', 22, frames), { S, store } = g;
+  const stats = JSON.stringify(g.ST), saved = JSON.stringify(store);
+  g.practiceStart();
+  const tally = { near: [0, 0], mid: [0, 0], far: [0, 0] };
+  for (let i = 0; i < 60; i++) {
+    const right = i % 3 !== 0, d = g.landDistance(g.ball), band = d < 4 ? 'near' : d < 8 ? 'mid' : 'far';
+    S.phase = 'window'; g.resolve(right === g.ball.isIn ? 'in' : 'out', 0.5);
+    check(!!g.replay, `practice: ball ${i + 1} (${right ? 'correct' : 'wrong'}) must get the replay`);
+    tally[band][1]++; if (right) tally[band][0]++;
+    g.finishReplay(); frames.length = 0; g.nextStep();   // the next ball's frame loop stays queued
+  }
+  check(S.call === 61, `practice must be endless: on ball ${S.call} after 60 calls`);
+  check(S.score === 0 && S.streak === 0 && S.over === 0, `practice keeps no score, streak or strikes: ${S.score}/${S.streak}/${S.over}`);
+  check(JSON.stringify(g.ST) === stats && JSON.stringify(store) === saved, 'practice must not change stats, badges or localStorage');
+  check(JSON.stringify(Object.fromEntries(Object.entries(g.PR).map(([k, v]) => [k, [v.ok, v.n]]))) === JSON.stringify(tally), `practice tally by landing distance: ${JSON.stringify(g.PR)}, expected ${JSON.stringify(tally)}`);
+  // no timer: run the frame loop for a minute without calling
+  let ts = 1000; for (let i = 0; i < 3750; i++) { ts += 16; for (const f of frames.splice(0)) f(ts); }
+  check(S.phase === 'window', `practice must not time out (phase ${S.phase} after a minute)`);
 }
 
 // ---------- brand: the header logo is src/brand/logo.svg, inlined ----------

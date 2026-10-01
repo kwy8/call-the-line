@@ -656,7 +656,10 @@ function resolve(call, elapsed){
   if(!right){ murmur(); quip('Player', pickQuote(), false); }
   else if(Math.abs(ball.m)<=0.005){ chime(); quip('Umpire', SPORT.umpire, true); }
   hud();
-  startReplay(()=>showEagle(right,call,elapsed));   // the ghost replay, then the Eagle-Eye review
+  // the ghost replay before the Eagle-Eye review: on every ball in practice, otherwise only after an overrule (a wrong
+  // call or no call); a correct call goes to the review after a short pause, as before
+  const review=()=>showEagle(right,call,elapsed);
+  if(S.mode==='practice' || !right) startReplay(review); else eagleTimer=setTimeout(review, 700);
 }
 let lastQuote=-1, quipTimer=0;
 function pickQuote(){ let i; do{ i=Math.floor(Math.random()*QUOTES.length); }while(i===lastQuote); lastQuote=i; return QUOTES[i]; }
@@ -667,7 +670,7 @@ function quip(who, line, ump){
 function toast(big, small){ const el=$('toast'); el.innerHTML = big ? `${big}<small>${small||''}</small>` : ''; el.hidden=!big; }
 
 // ---------- Ghost replay ----------
-// After every call: the last half second of the ball's flight again at quarter speed, from the same seat, with the
+// After an overrule (every call in practice): the last half second of the ball's flight again at quarter speed, from the same seat, with the
 // bounce mark drawn on the court the moment it lands; held for 0.4 s, then the review card. Space, Enter or a tap
 // skips it. It replays the very ball that was called (same object, no random draws), so nothing about play changes.
 const REPLAY = { span:0.5, speed:0.25, hold:0.4 };
