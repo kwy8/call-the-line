@@ -16,7 +16,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font
 .wrap{max-width:760px;margin:0 auto;padding-block:12px 28px;padding-inline:16px;display:flex;flex-direction:column;gap:10px}
 header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;flex:none}
-.brand .logo{display:block;height:34px;width:auto}  /* src/logo.svg, inlined so this file stays self-contained */
+.brand .logo{display:block;height:34px;width:auto}  /* src/brand/logo.svg, inlined so this file stays self-contained */
 .hud{display:flex;gap:18px;align-items:flex-end;font-variant-numeric:tabular-nums}
 .hud .k{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
 .hud .v{font-family:var(--display);font-weight:800;font-size:26px;line-height:1}
@@ -158,14 +158,23 @@ footer button.confirm{color:var(--bad);font-weight:600}
 
 <div class="wrap">
   <header>
-    <div class="brand"><svg class="logo" viewBox="0 0 798 124" role="img" aria-label="Call the Line"><svg x="0" y="0" width="124" height="124" viewBox="0 0 1024 1024"><defs><clipPath id="hdrb"><circle cx="512" cy="512" r="300"/></clipPath></defs>
-  <rect width="1024" height="1024" rx="225" fill="#1F3A5F"/>
-  <circle cx="512" cy="512" r="300" fill="#D6E23A"/>
-  <g clip-path="url(#hdrb)" fill="none" stroke="#A9B520" stroke-width="34" stroke-linecap="round">
-    <path d="M212 312 C 382 422, 382 602, 212 712"/>
-    <path d="M812 312 C 642 422, 642 602, 812 712"/>
-  </g>
-  <rect x="520.8" y="0" width="102.4" height="1024" fill="#FFFFFF"/></svg><path fill="#1F3A5F" d="M177.7 112.9L177.7 112.9Q166.9 112.9 160.3 106.1Q153.6 99.4 153.6 87.2L153.6 87.2L153.6 41.1Q153.6 26.5 159.4 18.8Q165.2 11.1 178.2 11.1L178.2 11.1Q185.3 11.1 190.8 13.7Q196.4 16.3 199.5 21.5Q202.7 26.7 202.7 34.6L202.7 34.6L202.7 51.9L182.8 51.9L182.8 37.1Q182.8 32.6 181.7 31.1Q180.6 29.5 178.2 29.5L178.2 29.5Q175.4 29.5 174.4 31.5Q173.5 33.5 173.5 36.9L173.5 36.9L173.5 86.9Q173.5 91.1 174.7 92.8Q175.9 94.5 178.2 94.5L178.2 94.5Q180.7 94.5 181.8 92.4Q182.8 90.3 182.8 86.9L182.8 86.9L182.8 68.9L203.0 68.9L203.0 87.9Q203.0 101.0 196.3 107.0Q189.7 112.9 177.7 112.9Z"/><path fill="#1F3A5F" d="M227.5 112L208.0 112L217.7 12L251.6 12L261.1 112L242.2 112L240.8 95.9L228.7 95.9L227.5 112ZM233.9 29.0L230.1 79.9L239.2 79.9L234.9 29.0L233.9 29.0Z"/><path fill="#1F3A5F" d="M309.0 112L268.4 112L268.4 12L288.4 12L288.4 95.0L309.0 95.0L309.0 112Z"/><path fill="#1F3A5F" d="M356.4 112L315.8 112L315.8 12L335.8 12L335.8 95.0L356.4 95.0L356.4 112Z"/><path fill="#1F3A5F" d=""/><path fill="#1F3A5F" d="M420.3 112L400.3 112L400.3 31.2L388.4 31.2L388.4 12L432.1 12L432.1 31.2L420.3 31.2L420.3 112Z"/><path fill="#1F3A5F" d="M458.7 112L438.9 112L438.9 12L458.7 12L458.7 47.7L468.2 47.7L468.2 12L488.1 12L488.1 112L468.2 112L468.2 66.7L458.7 66.7L458.7 112Z"/><path fill="#1F3A5F" d="M539.4 112L498.1 112L498.1 12L538.1 12L538.1 31.3L518.4 31.3L518.4 50.8L537.3 50.8L537.3 69.6L518.4 69.6L518.4 92.5L539.4 92.5L539.4 112Z"/><path fill="#1F3A5F" d=""/><path fill="#1F3A5F" d="M616.2 112L575.6 112L575.6 12L595.6 12L595.6 95.0L616.2 95.0L616.2 112Z"/><circle cx="650.2" cy="86" r="26" fill="#1F3A5F"/><clipPath id="hdrk"><circle cx="650.2" cy="86" r="26"/></clipPath><rect clip-path="url(#hdrk)" x="642" y="12" width="28.3" height="100" fill="#FFFFFF"/><rect x="646.5" y="12" width="19.3" height="100" fill="#1F3A5F"/><path fill="#1F3A5F" d="M713.0 112L693.4 112L693.4 12L714.0 12L723.2 59.9L723.2 12L742.5 12L742.5 112L723.0 112L713.0 62L713.0 112Z"/><path fill="#1F3A5F" d="M793.9 112L752.6 112L752.6 12L792.6 12L792.6 31.3L772.9 31.3L772.9 50.8L791.8 50.8L791.8 69.6L772.9 69.6L772.9 92.5L793.9 92.5L793.9 112Z"/></svg></div>
+    <div class="brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 72" class="logo" role="img" aria-label="Call the Line">
+<!-- Call the Line lockup. Wordmark: Anton (SIL OFL 1.1), outlined. -->
+<g transform="scale(0.720)"><rect width="100" height="100" rx="22" fill="#1F3A5F"/><circle cx="50" cy="50" r="30" fill="#D6E23A"/><path d="M28 36 c14 6 14 22 0 28" fill="none" stroke="#A9B520" stroke-width="3"/><path d="M72 36 c-14 6 -14 22 0 28" fill="none" stroke="#A9B520" stroke-width="3"/><rect x="44" y="0" width="10" height="100" fill="#FFFFFF"/></g>
+<g fill="#1F3A5F">
+<path transform="translate(92.00 68.0) scale(0.036364 -0.036364)" d="M488 -16Q297 -16 180.5 103.0Q64 222 64 436V1248Q64 1504 165.5 1640.0Q267 1776 496 1776Q621 1776 718.5 1730.0Q816 1684 872.0 1592.5Q928 1501 928 1362V1058H578V1318Q578 1397 558.0 1424.5Q538 1452 496 1452Q447 1452 430.0 1416.5Q413 1381 413 1322V441Q413 368 434.5 338.0Q456 308 496 308Q541 308 559.5 345.0Q578 382 578 441V758H932V425Q932 193 815.0 88.5Q698 -16 488 -16Z"/>
+<path transform="translate(128.05 68.0) scale(0.036364 -0.036364)" d="M30 0 200 1760H797L964 0H631L606 284H394L372 0ZM419 565H579L502 1460H486Z"/>
+<path transform="translate(164.94 68.0) scale(0.036364 -0.036364)" d="M78 0V1760H430V300H792V0Z"/>
+<path transform="translate(195.29 68.0) scale(0.036364 -0.036364)" d="M78 0V1760H430V300H792V0Z"/>
+<path transform="translate(243.83 68.0) scale(0.036364 -0.036364)" d="M229 0V1422H20V1760H790V1422H581V0Z"/>
+<path transform="translate(274.03 68.0) scale(0.036364 -0.036364)" d="M78 0V1760H428V1131H594V1760H944V0H594V798H428V0Z"/>
+<path transform="translate(311.94 68.0) scale(0.036364 -0.036364)" d="M78 0V1760H782V1420H436V1077H768V746H436V343H805V0Z"/>
+<path transform="translate(361.54 68.0) scale(0.036364 -0.036364)" d="M78 0V1760H430V300H792V0Z"/>
+<path transform="translate(418.76 68.0) scale(0.036364 -0.036364)" d="M78 0V1760H440L602 917V1760H942V0H598L422 880V0Z"/>
+<path transform="translate(456.60 68.0) scale(0.036364 -0.036364)" d="M78 0V1760H782V1420H436V1077H768V746H436V343H805V0Z"/>
+</g>
+<g><rect x="398.60" y="4.00" width="12.16" height="64.00" fill="#1F3A5F"/><circle cx="404.68" cy="44.96" r="16.64" fill="#D6E23A"/><path d="M392.37 37.31 c8.32 3.33 8.32 11.98 0 15.31" fill="none" stroke="#A9B520" stroke-width="1.66"/><path d="M417.00 37.31 c-8.32 3.33 -8.32 11.98 0 15.31" fill="none" stroke="#A9B520" stroke-width="1.66"/><rect x="398.60" y="4.00" width="12.16" height="64.00" fill="#1F3A5F"/></g>
+</svg></div>
     <div class="hud">
       <div><div class="k">Score</div><div class="v" id="score">0</div></div>
       <div><div class="k">Call</div><div class="v" id="callNo">–</div></div>

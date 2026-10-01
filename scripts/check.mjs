@@ -202,6 +202,14 @@ check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1
   }
 }
 
+// ---------- brand: the header logo is src/brand/logo.svg, inlined ----------
+{
+  const inner = svg => svg.trim().replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '').trim();
+  const brand = readFileSync(new URL('../src/brand/logo.svg', import.meta.url), 'utf8');
+  const header = html.match(/<div class="brand">(<svg[\s\S]*?<\/svg>)<\/div>/);
+  check(header && inner(header[1]) === inner(brand), 'the game header logo no longer matches src/brand/logo.svg: re-inline it');
+}
+
 if (failures.length) {
   console.error(`check failed: ${failures.length}${failures.length === 50 ? '+' : ''} problem(s)`);
   for (const f of failures) console.error('  ' + f);
