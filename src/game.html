@@ -248,16 +248,24 @@ const SPORT = {
   ball: { radius: 0.0335, markLength: 0.11, markWidth: 0.072,
           descent: 0.21, bounce: 0.55 },             // falling speed and rebound, as fractions of the ball's court speed
   judge: { eye: 1.1, behind: 2.6, aim: 1.5 },        // eye height; distance behind the end of the line; aim past the landing spot
-  // The court is symmetric, so a left-hand seat sees exactly the right-hand view in a mirror (flip), and the far baseline
-  // seen from behind looks the same as the near one (far). Play always runs in the right/near frame; only the picture flips.
-  // line(match) names the exact line judged, e.g. "right doubles sideline".
+  // Views a judge can have. The court is symmetric, so a left-hand view is exactly the right-hand one in a mirror (flip),
+  // and the far baseline seen from behind looks the same as the near one (far). Play always runs in the right/near
+  // frame; only the picture flips. line(match) names the exact line judged, e.g. "right doubles sideline".
   seats: {
-    'sideline-right':     { name:'Right sideline',     view:'side',             line: m => `right ${m} sideline` },
-    'sideline-left':      { name:'Left sideline',      view:'side', flip:true,  line: m => `left ${m} sideline` },
-    'baseline-near':      { name:'Near baseline',      view:'base',             line: () => 'near baseline' },
-    'baseline-far':       { name:'Far baseline',       view:'base', far:true,   line: () => 'far baseline' },
-    'service-line-right': { name:'Right service line', view:'svc',              line: () => 'near service line, from the right' },
-    'service-line-left':  { name:'Left service line',  view:'svc', flip:true,   line: () => 'near service line, from the left' },
+    'sideline-right':     { name:'Right sideline', view:'side',             line: m => `right ${m} sideline` },
+    'sideline-left':      { name:'Left sideline',  view:'side', flip:true,  line: m => `left ${m} sideline` },
+    'baseline-near':      { name:'Baseline',       view:'base',             line: () => 'near baseline' },
+    'baseline-far':       { name:'Baseline',       view:'base', far:true,   line: () => 'far baseline' },
+    'service-line-right': { name:'Service line',   view:'svc',              line: () => 'near service line, from the right' },
+    'service-line-left':  { name:'Service line',   view:'svc', flip:true,   line: () => 'near service line, from the left' },
+  },
+  // The four seats a player gets. The two sideline seats differ (the ball comes from the other side); the baseline and
+  // service-line seats look the same from either end, so each takes one of its views at random.
+  choices: {
+    'sideline-right': ['sideline-right'],
+    'sideline-left':  ['sideline-left'],
+    'baseline':       ['baseline-near', 'baseline-far'],
+    'service-line':   ['service-line-right', 'service-line-left'],
   },
   surfaces: { clay:'Clay', greenHard:'Green hard', blueHard:'Blue hard', grass:'Grass' },
   areas: { court:'Court', alley:'Alley', serviceBox:'Service box' },   // labels on the Eagle-Eye review
@@ -269,7 +277,7 @@ const SPORT = {
 const { length: FAR_BASE, net: NET_Y, serviceNear: SVC1, serviceFar: SVC2, centre: CENTRE, singlesWidth: SINGLES_W,
         alley: ALLEY, lineWidth: LINE_W } = SPORT.court;
 const { radius: BALL_R, markLength: MARK_L, markWidth: MARK_W } = SPORT.ball;
-const SEATS = SPORT.seats, SURF = SPORT.surfaces, CALL = SPORT.calls, QUOTES = SPORT.quotes, J = SPORT.judge;
+const SEATS = SPORT.seats, SEAT_CHOICES = SPORT.choices, SURF = SPORT.surfaces, CALL = SPORT.calls, QUOTES = SPORT.quotes, J = SPORT.judge;
 const G = 9.81;
 
 // ---------- Tournament ladder ----------
@@ -320,7 +328,11 @@ function mix(a, b, t){ // blend two #rrggbb colours
 function lineName(id, match){ return SEATS[id].line(match); }
 const cap = t => t[0].toUpperCase()+t.slice(1);
 // Tournaments 1-2 (tiers 0-1): sideline and baseline seats; service-line seats from tournament 3
-function pickSeat(tier, r){ const pool=Object.keys(SEATS).filter(id=>tier>=2||SEATS[id].view!=='svc'); return pool[Math.min(pool.length-1,Math.floor(r*pool.length))]; }
+// One draw r picks the seat, and what is left of it picks that seat's view, so the daily still needs a single number.
+function pickSeat(tier, r){
+  const pool=Object.keys(SEAT_CHOICES).filter(c=>tier>=2||SEATS[SEAT_CHOICES[c][0]].view!=='svc'), x=r*pool.length;
+  const i=Math.min(pool.length-1,Math.floor(x)), views=SEAT_CHOICES[pool[i]];
+  return views[Math.min(views.length-1,Math.floor((x-i)*views.length))]; }
 
 // ---------- State ----------
 const S = { run:0, seat:'sideline-right', match:'singles', cond:'day', mode:'career', tier:0, call:0, score:0, streak:0, over:0, best:0, bestTier:0, phase:'idle', muted:false, sound:null };
@@ -723,7 +735,8 @@ function practicePanel(){
   el.innerHTML=`<span title="Accuracy this session by landing distance down the line: near under 4 m, mid 4 to 8 m, far over 8 m">${PRACTICE_BANDS.map(x=>{
     const t=PR[x.key]; return `${x.name} <b>${t.n?Math.round(100*t.ok/t.n)+'%':'–'}</b>${t.n?` (${t.ok}/${t.n})`:''}`; }).join(' · ')}</span>`;
 }
-// Court diagram with all six chairs to choose from (same layout as the intro cards' diagram, singles, scaled up)
+// Court diagram with the four seats' chairs to choose from (same layout as the intro cards' diagram, singles, scaled
+// up); a seat with two views shows the chair of its first
 function seatPicker(selected){
   const k=4.4, yB=132, L=-SINGLES_W, P=([x,y])=>[50+(x-CENTRE)*k, yB-y*k].map(v=>+v.toFixed(1));
   const [rx,ry]=P([L-ALLEY,FAR_BASE]), [rx2,ry2]=P([ALLEY+LINE_W,0]);
@@ -731,14 +744,14 @@ function seatPicker(selected){
   const place=id=>{ const s=SEATS[id], V=seatGeom(s.view,'singles'), tf=([x,y])=>[s.flip||s.far ? -SINGLES_W-x : x, s.far ? FAR_BASE-y : y];
     const line=V.axis==='x' ? [[V.line-LINE_W/2,0],[V.line-LINE_W/2,FAR_BASE]] : [[V.end+LINE_W/2,V.line+LINE_W/2],[V.end-V.len+LINE_W/2,V.line+LINE_W/2]];
     return { line:line.map(p=>P(tf(p))), chair:P(tf(V.cam)) }; };
-  const sel=place(selected);
+  const sel=place(SEAT_CHOICES[selected][0]);
   return `<svg class="picker" id="picker" viewBox="0 0 100 160" role="radiogroup" aria-label="Choose your chair">
     <rect x="${rx}" y="${ry}" width="${+(rx2-rx).toFixed(1)}" height="${+(ry2-ry).toFixed(1)}" fill="var(--paper)" stroke="var(--muted)" stroke-width="1"/>
     <g stroke="var(--muted)" stroke-width="1">${ln([0,0],[0,FAR_BASE])}${ln([L,0],[L,FAR_BASE])}${ln([L,SVC1],[0,SVC1])}${ln([L,SVC2],[0,SVC2])}${ln([CENTRE,SVC1],[CENTRE,SVC2])}</g>
     <g stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="2 2">${ln([ALLEY+1,NET_Y],[L-ALLEY-1,NET_Y])}</g>
     <line x1="${sel.line[0][0]}" y1="${sel.line[0][1]}" x2="${sel.line[1][0]}" y2="${sel.line[1][1]}" stroke="var(--navy)" stroke-width="3" stroke-linecap="round"/>
-    ${Object.keys(SEATS).map(id=>{ const [x,y]=place(id).chair, on=id===selected;
-      return `<g class="chair" data-seat="${id}" role="radio" tabindex="0" aria-checked="${on}" aria-label="${SEATS[id].name}">
+    ${Object.keys(SEAT_CHOICES).map(id=>{ const [x,y]=place(SEAT_CHOICES[id][0]).chair, on=id===selected;
+      return `<g class="chair" data-seat="${id}" role="radio" tabindex="0" aria-checked="${on}" aria-label="${SEATS[SEAT_CHOICES[id][0]].name}">
         ${on?`<circle cx="${x}" cy="${y}" r="7" fill="var(--ball)" opacity=".6"/>`:''}
         <circle class="dot" cx="${x}" cy="${y}" r="4.5" fill="${on?'var(--navy)':'var(--paper)'}" stroke="var(--navy)" stroke-width="1.5"/></g>`; }).join('')}
   </svg>`;
@@ -749,7 +762,7 @@ function practiceCard(){
     <span class="tag">Practice</span>
     <h2>Pick your chair</h2>
     ${seatPicker(practiceSeat)}
-    <span class="hint">${SEATS[practiceSeat].name}: you judge the ${lineName(practiceSeat,'singles')}</span>
+    <span class="hint">${SEATS[SEAT_CHOICES[practiceSeat][0]].name}: you judge the ${practiceSeat==='baseline'?'baseline':practiceSeat==='service-line'?'near service line':lineName(practiceSeat,'singles')}</span>
     <div class="levels" role="radiogroup" aria-label="Level">${DAILY_LEVELS.map((l,i)=>`<button type="button" data-level="${i}" aria-pressed="${i===practiceLevel}">${l.name}</button>`).join('')}</div>
     <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
     <span class="hint">No timer, no score. Nothing here counts towards your stats.</span>
@@ -769,7 +782,8 @@ function practiceCard(){
   $('back').onclick=()=>intro();
 }
 function practiceStart(){
-  S.mode='practice'; S.seat=practiceSeat; S.match='singles'; S.cond='day'; S.tier=DAILY_LEVELS[practiceLevel].tier;
+  const views=SEAT_CHOICES[practiceSeat];
+  S.mode='practice'; S.seat=views[Math.floor(Math.random()*views.length)];   // either end, at random S.match='singles'; S.cond='day'; S.tier=DAILY_LEVELS[practiceLevel].tier;
   S.call=0; S.score=0; S.streak=0; S.over=0; R=Math.random;
   PR=Object.fromEntries(PRACTICE_BANDS.map(x=>[x.key,{ ok:0, n:0 }]));
   $('tName').textContent=`Practice · ${DAILY_LEVELS[practiceLevel].name}`; $('tSw').style.background=TIERS[S.tier].court;

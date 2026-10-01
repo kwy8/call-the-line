@@ -20,13 +20,13 @@ const BALLS_PER_SEAT_AND_TIER = 300;
 // (metres, m/s). Everyone playing a given date must get the same balls, so these must only change on purpose. If a change to
 // the ball code, TIERS, seats or the daily seeding is deliberate, regenerate these values and say so in the commit.
 const DAILY_FIXTURE = {
-  date: '2026-10-01', level: 'National', seat: 'service-line-right', match: 'singles', cond: 'night',
+  date: '2026-10-01', level: 'National', seat: 'baseline-far', match: 'singles', cond: 'night',
   balls: [
-    { tier: 2, xL: -5.263177, yL: 5.314634, vx: -1.763319, vy: -31.415598, m: 0.115415,  isIn: false },
-    { tier: 2, xL: -5.799764, yL: 5.417902, vx: 2.692516,  vy: -32.996784, m: 0.012202,  isIn: false },
-    { tier: 2, xL: -4.41306,  yL: 5.398084, vx: 2.396158,  vy: -33.006761, m: 0.031999,  isIn: false },
-    { tier: 2, xL: -3.869069, yL: 5.595568, vx: -1.886805, vy: -30.084494, m: -0.165506, isIn: true },
-    { tier: 2, xL: -5.035255, yL: 5.256913, vx: 2.570415,  vy: -30.205036, m: 0.1732,    isIn: false },
+    { tier: 2, xL: -5.263177, yL: -0.170366, vx: -1.763319, vy: -31.415598, m: 0.115415,  isIn: false },
+    { tier: 2, xL: -5.799764, yL: -0.067098, vx: 2.692516,  vy: -32.996784, m: 0.012202,  isIn: false },
+    { tier: 2, xL: -4.41306,  yL: -0.086916, vx: 2.396158,  vy: -33.006761, m: 0.031999,  isIn: false },
+    { tier: 2, xL: -3.869069, yL: 0.110568,  vx: -1.886805, vy: -30.084494, m: -0.165506, isIn: true },
+    { tier: 2, xL: -5.035255, yL: -0.228087, vx: 2.570415,  vy: -30.205036, m: 0.1732,    isIn: false },
   ],
 };
 const html = readFileSync(new URL('../src/game.html', import.meta.url), 'utf8');
@@ -37,7 +37,7 @@ if (!END.test(match[1])) fail('src/game.html script no longer ends with "})();"'
 const src = match[1].replace(END, `window.__ctl={ S, newBall, startPoint, resolve, dailyStart, proj, cam, SEATS,
   get ball(){ return ball; }, get W(){ return W; }, get H(){ return H; },
   LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, DAILY_LEVELS, TIERS, CONDITIONS, pickCond,
-  ST, nextStep, practiceStart, finishReplay, landDistance, get replay(){ return replay; }, get PR(){ return PR; } };})();`);
+  ST, nextStep, practiceStart, finishReplay, landDistance, pickSeat, SEAT_CHOICES, get replay(){ return replay; }, get PR(){ return PR; } };})();`);
 
 // A seeded Math.random so every run checks the same balls and a failure can be reproduced.
 function mulberry32(a) { return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -206,6 +206,22 @@ check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1
   }
 }
 
+// ---------- seat assignment: four seats, the baseline and service-line seats from either end ----------
+{
+  const views = Object.entries(g.SEAT_CHOICES).flatMap(([c, vs]) => vs.map(v => [v, c])), seatOf = Object.fromEntries(views);
+  check(Object.keys(g.SEAT_CHOICES).length === 4, `there must be four seats, found ${Object.keys(g.SEAT_CHOICES).join(', ')}`);
+  for (let tier = 0; tier < 5; tier++) {
+    const seats = {}, viewCount = {}, N = 4000;
+    for (let i = 0; i < N; i++) { const v = g.pickSeat(tier, (i + 0.5) / N); viewCount[v] = (viewCount[v] || 0) + 1; seats[seatOf[v]] = (seats[seatOf[v]] || 0) + 1; }
+    const expected = tier >= 2 ? 4 : 3;
+    check(Object.keys(viewCount).every(v => seatOf[v]), `tier ${tier}: pickSeat returned a view that is not one of the four seats`);
+    check(Object.keys(seats).length === expected && Object.values(seats).every(n => Math.abs(n - N / expected) <= 1), `tier ${tier}: seats ${JSON.stringify(seats)}, expected ${expected} seats equally often`);
+    check((tier >= 2) === ('service-line' in seats), `tier ${tier}: the service line ${tier >= 2 ? 'must' : 'must not'} be offered`);
+    for (const [c, vs] of Object.entries(g.SEAT_CHOICES)) if (seats[c] && vs.length > 1)
+      check(vs.every(v => Math.abs(viewCount[v] - seats[c] / vs.length) <= 1), `tier ${tier}: ${c} must come from either end equally often: ${vs.map(v => v + ' ' + viewCount[v]).join(', ')}`);
+  }
+}
+
 // ---------- ghost replay and practice ----------
 {
   const frames = [], g = boot('2026-10-01T12:00:00', 21, frames), { S, els } = g;
@@ -276,4 +292,4 @@ if (failures.length) {
   for (const f of failures) console.error('  ' + f);
   process.exit(1);
 }
-console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seats, 5 tiers, singles and doubles, ${Object.keys(CONDITIONS).length} conditions (${dampBalls} damp-grass balls with 20% longer marks; alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily (${DAILY_FIXTURE.level}) matches the frozen fixture`);
+console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seat views (${Object.keys(g.SEAT_CHOICES).length} seats), 5 tiers, singles and doubles, ${Object.keys(CONDITIONS).length} conditions (${dampBalls} damp-grass balls with 20% longer marks; alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily (${DAILY_FIXTURE.level}) matches the frozen fixture`);
