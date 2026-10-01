@@ -46,6 +46,8 @@ GET  /daily/top?day=YYYY-MM-DD                              ->  {day, total, top
 GET  /daily/rank?day=YYYY-MM-DD&id=...                      ->  {day, rank, total}
 ```
 
+Browsers may call it only from the origins in `ALLOWED_ORIGIN` in `worker/wrangler.toml` (a comma-separated list; the Worker echoes back the matching origin and sends no CORS headers to any other). Add an origin there and redeploy if the game is served from somewhere new.
+
 Rules: one score per player id per day (later submissions are ignored and the first stands); the score must be possible for that many correct calls out of 20 (between 100 per correct call and the full-speed, unbroken-streak maximum, 9,400 for 20); the day must be yesterday, today or tomorrow in UTC, to cover every timezone; names are cut to 16 characters with control and invisible characters removed; 30 requests per minute per IP. Ties go to the faster average call, then the earlier submission.
 
 Deploy (needs a Cloudflare account; commands are for Wrangler 4, run from the repository root):

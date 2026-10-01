@@ -72,27 +72,33 @@ async function overLimit(kv, ip, now) {
   return false;
 }
 
-function cors(env) {
-  return { 'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+// CORS: ALLOWED_ORIGIN is a comma-separated list of origins (or "*"). A request whose Origin is on the list gets that
+// origin echoed back; any other origin, or no Origin at all, gets no CORS headers, so browsers refuse the response.
+export function corsHeaders(allowed, origin) {
+  const list = String(allowed || '').split(',').map(o => o.trim()).filter(Boolean);
+  if (!origin || !(list.includes('*') || list.includes(origin))) return {};
+  return { 'Access-Control-Allow-Origin': list.includes('*') ? '*' : origin, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
            'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400' };
 }
-const json = (env, status, body, extra = {}) =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...cors(env), ...extra } });
 
 export async function handle(request, env, now = Date.now()) {
   const url = new URL(request.url), kv = env.LEADERBOARD;
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(env) });
+  // Vary: Origin on every response, since the CORS headers depend on it and /daily/top may be cached
+  const cors = { Vary: 'Origin', ...corsHeaders(env.ALLOWED_ORIGIN, request.headers.get('Origin')) };
+  const reply = (status, body, extra = {}) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...cors, ...extra } });
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (await overLimit(kv, ip, now)) return json(env, 429, { error: 'too many requests, try again in a minute' }, { 'Retry-After': '60' });
+  if (await overLimit(kv, ip, now)) return reply(429, { error: 'too many requests, try again in a minute' }, { 'Retry-After': '60' });
 
   if (url.pathname === '/daily/score') {
-    if (request.method !== 'POST') return json(env, 405, { error: 'use POST' });
+    if (request.method !== 'POST') return reply(405, { error: 'use POST' });
     const text = await request.text();
-    if (text.length > 1024) return json(env, 413, { error: 'body too large' });
+    if (text.length > 1024) return reply(413, { error: 'body too large' });
     let b;
-    try { b = JSON.parse(text); } catch (e) { return json(env, 400, { error: 'body must be JSON' }); }
+    try { b = JSON.parse(text); } catch (e) { return reply(400, { error: 'body must be JSON' }); }
     const why = invalid(b, now);
-    if (why) return json(env, 400, { error: why });
+    if (why) return reply(400, { error: why });
     const key = `s:${b.day}:${b.id}`, prev = await kv.getWithMetadata(key);
     // one score per id per day: a later submission is ignored and the first one stands
     const me = prev.metadata ? { id: b.id, ...prev.metadata } : { id: b.id, n: cleanName(b.name), s: b.score, c: b.correct, a: b.avgMs, t: now };
@@ -100,23 +106,23 @@ export async function handle(request, env, now = Date.now()) {
     // KV listing is eventually consistent, so a score written moments ago may be missing from the list: add it back.
     // The response carries the fresh top 10, since /daily/top may be cached for 30 s.
     const rows = (await board(kv, b.day)).filter(r => r.id !== me.id).concat(me).sort(better);
-    return json(env, 200, { accepted: !prev.metadata, rank: rows.indexOf(me) + 1, total: rows.length, top: publicRows(rows, 10) });
+    return reply(200, { accepted: !prev.metadata, rank: rows.indexOf(me) + 1, total: rows.length, top: publicRows(rows, 10) });
   }
 
   if (url.pathname === '/daily/top' || url.pathname === '/daily/rank') {
-    if (request.method !== 'GET') return json(env, 405, { error: 'use GET' });
+    if (request.method !== 'GET') return reply(405, { error: 'use GET' });
     const day = url.searchParams.get('day') || '';
-    if (!DAY.test(day)) return json(env, 400, { error: 'day must be YYYY-MM-DD' });
+    if (!DAY.test(day)) return reply(400, { error: 'day must be YYYY-MM-DD' });
     const rows = await board(kv, day);
     if (url.pathname === '/daily/top')
-      return json(env, 200, { day, total: rows.length, top: publicRows(rows, TOP) },
+      return reply(200, { day, total: rows.length, top: publicRows(rows, TOP) },
                   { 'Cache-Control': 'public, max-age=30' });
     const id = url.searchParams.get('id') || '';
-    if (!ID.test(id)) return json(env, 400, { error: 'id must be 16-40 lowercase letters or digits' });
+    if (!ID.test(id)) return reply(400, { error: 'id must be 16-40 lowercase letters or digits' });
     const i = rows.findIndex(r => r.id === id);
-    return json(env, 200, { day, rank: i < 0 ? null : i + 1, total: rows.length });
+    return reply(200, { day, rank: i < 0 ? null : i + 1, total: rows.length });
   }
-  return json(env, 404, { error: 'not found' });
+  return reply(404, { error: 'not found' });
 }
 
 export default { fetch: (request, env) => handle(request, env) };

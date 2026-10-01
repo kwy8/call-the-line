@@ -10,9 +10,10 @@ routes = [
 ]
 
 [vars]
-# The one origin browsers may call the API from ("*" would allow any). Other origins, such as the GitHub Pages
-# copy at kwy8.github.io and the Capacitor apps, are refused by the browser.
-ALLOWED_ORIGIN = "https://calltheline.site"
+# Comma-separated origins browsers may call the API from; the Worker echoes back the matching one, and any other
+# origin gets no CORS headers. Here: the site, its www name, the GitHub Pages copy, the Capacitor apps (iOS uses
+# capacitor://localhost, Android https://localhost) and the local dev server.
+ALLOWED_ORIGIN = "https://calltheline.site,https://www.calltheline.site,https://kwy8.github.io,capacitor://localhost,https://localhost,http://localhost:3000"
 
 [[kv_namespaces]]
 binding = "LEADERBOARD"

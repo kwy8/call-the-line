@@ -27,8 +27,8 @@ const NOW = Date.parse('2026-10-01T09:30:00Z'), DAY = '2026-10-01';
 let env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: '*' }, ipCounter = 0;
 const id = n => 'player' + String(n).padStart(14, '0');
 // each request comes from a fresh IP unless one is given, so the rate limit only bites where it is being tested
-async function call(method, path, body, { ip = `10.0.${++ipCounter >> 8}.${ipCounter & 255}`, now = NOW, raw } = {}) {
-  const init = { method, headers: { 'CF-Connecting-IP': ip, 'Content-Type': 'application/json' } };
+async function call(method, path, body, { ip = `10.0.${++ipCounter >> 8}.${ipCounter & 255}`, now = NOW, raw, origin } = {}) {
+  const init = { method, headers: { 'CF-Connecting-IP': ip, 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) } };
   if (body !== undefined || raw !== undefined) init.body = raw ?? JSON.stringify(body);
   const res = await handle(new Request('https://api.example.test' + path, init), env, now);
   const text = await res.text();
@@ -107,9 +107,27 @@ r = await call('GET', `/daily/top?day=${DAY}`, undefined, { ip: '203.0.113.8' })
 r = await call('GET', `/daily/top?day=${DAY}`, undefined, { ip: '203.0.113.7', now: NOW + 60000 }); check(r.status === 200, 'the limit resets the next minute');
 check(![...env.LEADERBOARD.store.keys()].some(k => k.includes('203.0.113')), 'raw IPs must not be stored');
 
-// ---------- CORS ----------
-r = await call('OPTIONS', '/daily/score');
-check(r.status === 204 && r.headers.get('Access-Control-Allow-Origin') === '*' && /POST/.test(r.headers.get('Access-Control-Allow-Methods')), 'CORS preflight');
+// ---------- CORS: echo back an allowed origin, nothing for any other ----------
+const ALLOWED = ['https://calltheline.site', 'https://www.calltheline.site', 'https://kwy8.github.io', 'capacitor://localhost', 'https://localhost', 'http://localhost:3000'];
+env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: ALLOWED.join(', ') };   // spaces after commas are tolerated
+for (const o of ALLOWED) {
+  r = await call('OPTIONS', '/daily/score', undefined, { origin: o });
+  check(r.status === 204 && r.headers.get('Access-Control-Allow-Origin') === o && /POST/.test(r.headers.get('Access-Control-Allow-Methods') || ''), `preflight from ${o}: ${r.headers.get('Access-Control-Allow-Origin')}`);
+  r = await call('GET', `/daily/top?day=${DAY}`, undefined, { origin: o });
+  check(r.headers.get('Access-Control-Allow-Origin') === o, `GET from ${o}: ${r.headers.get('Access-Control-Allow-Origin')}`);
+}
+for (const o of ['https://evil.example', 'https://calltheline.site.evil.example', 'http://calltheline.site', 'https://kwy8.github.io.evil.example', 'http://localhost:8080', 'null', undefined]) {
+  for (const [m, p] of [['OPTIONS', '/daily/score'], ['GET', `/daily/top?day=${DAY}`], ['POST', '/daily/score']]) {
+    r = await call(m, p, m === 'POST' ? { day: DAY, id: id(500), name: 'x', score: 100, correct: 1, avgMs: 500 } : undefined, { origin: o });
+    const leaked = [...r.headers.keys()].filter(k => k.startsWith('access-control-'));
+    check(leaked.length === 0, `${m} from ${o ?? '(no Origin)'} must get no CORS headers, got ${leaked.join(', ')}`);
+  }
+}
+r = await call('GET', `/daily/top?day=${DAY}`, undefined, { origin: 'https://evil.example' });
+check(/Origin/.test(r.headers.get('Vary') || ''), 'responses vary by Origin');
+env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: '*' };
+r = await call('OPTIONS', '/daily/score', undefined, { origin: 'https://anything.example' });
+check(r.headers.get('Access-Control-Allow-Origin') === '*', '"*" still allows any origin');
 
 if (failures.length) { console.error(`worker check failed: ${failures.length} problem(s)`); for (const f of failures) console.error('  ' + f); process.exit(1); }
-console.log('worker check passed: scores, one per id per day, validation, names, ordering, rank, fresh top 10 on submit, top 50, rate limit, CORS');
+console.log('worker check passed: scores, one per id per day, validation, names, ordering, rank, fresh top 10 on submit, top 50, rate limit, CORS allowlist');
