@@ -10,10 +10,11 @@ routes = [
 ]
 
 [vars]
-# Origin allowed to call the API from a browser; "*" allows any (the game is also served from Capacitor apps).
-ALLOWED_ORIGIN = "*"
+# The one origin browsers may call the API from ("*" would allow any). Other origins, such as the GitHub Pages
+# copy at kwy8.github.io and the Capacitor apps, are refused by the browser.
+ALLOWED_ORIGIN = "https://calltheline.site"
 
 [[kv_namespaces]]
 binding = "LEADERBOARD"
-# Replace with the id printed by: npx wrangler kv namespace create LEADERBOARD
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+# Created with: npx wrangler kv namespace create LEADERBOARD
+id = "ad15bd2bd3c24ce094d0200ea351cf2e"
