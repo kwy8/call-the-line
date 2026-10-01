@@ -15,8 +15,8 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font
 *{box-sizing:border-box}
 .wrap{max-width:760px;margin:0 auto;padding-block:12px 28px;padding-inline:16px;display:flex;flex-direction:column;gap:10px}
 header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.brand{font-family:var(--display);font-weight:800;font-size:32px;line-height:1;text-transform:uppercase;display:flex;align-items:center;gap:8px}
-.brand i{width:14px;height:14px;border-radius:50%;background:var(--ball);border:2px solid var(--ball-dark);display:inline-block}
+.brand{display:flex;align-items:center;flex:none}
+.brand .logo{display:block;height:34px;width:auto}  /* src/logo.svg, inlined so this file stays self-contained */
 .hud{display:flex;gap:18px;align-items:flex-end;font-variant-numeric:tabular-nums}
 .hud .k{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
 .hud .v{font-family:var(--display);font-weight:800;font-size:26px;line-height:1}
@@ -140,8 +140,11 @@ footer button.confirm{color:var(--bad);font-weight:600}
   .btn{font-size:20px;padding:10px 22px} .btn.ghost{padding-block:8px}
   #rescue{font-size:17px;padding:12px 14px}
   .tag{font-size:10px}
-  .brand{font-size:26px}
-  .hud{gap:12px} .hud .v{font-size:22px}
+  /* logo and HUD share one line on a 390px phone: smaller numbers, and Best (also on the start screen) is hidden */
+  header{flex-wrap:nowrap;align-items:center}
+  .brand .logo{height:20px}
+  .hud{gap:8px} .hud .v{font-size:18px} .hud .k{font-size:9px;letter-spacing:.06em} .hud .best{display:none}
+  .strikes{gap:3px;padding-block:4px 2px} .strikes i{width:12px;height:12px}
   .call{font-size:34px}
   .card h2{font-size:34px}
   .eagle{grid-template-columns:130px 1fr} .eagle canvas{width:130px;height:130px}
@@ -155,12 +158,19 @@ footer button.confirm{color:var(--bad);font-weight:600}
 
 <div class="wrap">
   <header>
-    <div class="brand"><i></i>Call the Line</div>
+    <div class="brand"><svg class="logo" viewBox="0 0 798 124" role="img" aria-label="Call the Line"><svg x="0" y="0" width="124" height="124" viewBox="0 0 1024 1024"><defs><clipPath id="hdrb"><circle cx="512" cy="512" r="300"/></clipPath></defs>
+  <rect width="1024" height="1024" rx="225" fill="#1F3A5F"/>
+  <circle cx="512" cy="512" r="300" fill="#D6E23A"/>
+  <g clip-path="url(#hdrb)" fill="none" stroke="#A9B520" stroke-width="34" stroke-linecap="round">
+    <path d="M212 312 C 382 422, 382 602, 212 712"/>
+    <path d="M812 312 C 642 422, 642 602, 812 712"/>
+  </g>
+  <rect x="520.8" y="0" width="102.4" height="1024" fill="#FFFFFF"/></svg><path fill="#1F3A5F" d="M177.7 112.9L177.7 112.9Q166.9 112.9 160.3 106.1Q153.6 99.4 153.6 87.2L153.6 87.2L153.6 41.1Q153.6 26.5 159.4 18.8Q165.2 11.1 178.2 11.1L178.2 11.1Q185.3 11.1 190.8 13.7Q196.4 16.3 199.5 21.5Q202.7 26.7 202.7 34.6L202.7 34.6L202.7 51.9L182.8 51.9L182.8 37.1Q182.8 32.6 181.7 31.1Q180.6 29.5 178.2 29.5L178.2 29.5Q175.4 29.5 174.4 31.5Q173.5 33.5 173.5 36.9L173.5 36.9L173.5 86.9Q173.5 91.1 174.7 92.8Q175.9 94.5 178.2 94.5L178.2 94.5Q180.7 94.5 181.8 92.4Q182.8 90.3 182.8 86.9L182.8 86.9L182.8 68.9L203.0 68.9L203.0 87.9Q203.0 101.0 196.3 107.0Q189.7 112.9 177.7 112.9Z"/><path fill="#1F3A5F" d="M227.5 112L208.0 112L217.7 12L251.6 12L261.1 112L242.2 112L240.8 95.9L228.7 95.9L227.5 112ZM233.9 29.0L230.1 79.9L239.2 79.9L234.9 29.0L233.9 29.0Z"/><path fill="#1F3A5F" d="M309.0 112L268.4 112L268.4 12L288.4 12L288.4 95.0L309.0 95.0L309.0 112Z"/><path fill="#1F3A5F" d="M356.4 112L315.8 112L315.8 12L335.8 12L335.8 95.0L356.4 95.0L356.4 112Z"/><path fill="#1F3A5F" d=""/><path fill="#1F3A5F" d="M420.3 112L400.3 112L400.3 31.2L388.4 31.2L388.4 12L432.1 12L432.1 31.2L420.3 31.2L420.3 112Z"/><path fill="#1F3A5F" d="M458.7 112L438.9 112L438.9 12L458.7 12L458.7 47.7L468.2 47.7L468.2 12L488.1 12L488.1 112L468.2 112L468.2 66.7L458.7 66.7L458.7 112Z"/><path fill="#1F3A5F" d="M539.4 112L498.1 112L498.1 12L538.1 12L538.1 31.3L518.4 31.3L518.4 50.8L537.3 50.8L537.3 69.6L518.4 69.6L518.4 92.5L539.4 92.5L539.4 112Z"/><path fill="#1F3A5F" d=""/><path fill="#1F3A5F" d="M616.2 112L575.6 112L575.6 12L595.6 12L595.6 95.0L616.2 95.0L616.2 112Z"/><circle cx="650.2" cy="86" r="26" fill="#1F3A5F"/><clipPath id="hdrk"><circle cx="650.2" cy="86" r="26"/></clipPath><rect clip-path="url(#hdrk)" x="642" y="12" width="28.3" height="100" fill="#FFFFFF"/><rect x="646.5" y="12" width="19.3" height="100" fill="#1F3A5F"/><path fill="#1F3A5F" d="M713.0 112L693.4 112L693.4 12L714.0 12L723.2 59.9L723.2 12L742.5 12L742.5 112L723.0 112L713.0 62L713.0 112Z"/><path fill="#1F3A5F" d="M793.9 112L752.6 112L752.6 12L792.6 12L792.6 31.3L772.9 31.3L772.9 50.8L791.8 50.8L791.8 69.6L772.9 69.6L772.9 92.5L793.9 92.5L793.9 112Z"/></svg></div>
     <div class="hud">
       <div><div class="k">Score</div><div class="v" id="score">0</div></div>
       <div><div class="k">Call</div><div class="v" id="callNo">–</div></div>
       <div><div class="k">Streak</div><div class="v" id="streak">0</div></div>
-      <div><div class="k">Best</div><div class="v" id="best">0</div></div>
+      <div class="best"><div class="k">Best</div><div class="v" id="best">0</div></div>
       <div><div class="k">Overrules</div><div class="strikes" id="strikes"><i></i><i></i><i></i></div></div>
     </div>
   </header>

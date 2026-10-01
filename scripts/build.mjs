@@ -22,12 +22,12 @@ const doc = `<!doctype html>
 <meta property="og:image:type" content="image/svg+xml">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="A tennis ball touching a white court line, with the words Call the Line">
+<meta property="og:image:alt" content="The Call the Line logo, a tennis ball with a white line through it, and the words You think it's easy being a line judge?">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${TITLE}">
 <meta name="twitter:description" content="${DESC}">
 <meta name="twitter:image" content="${SITE}og.svg">
-<meta name="twitter:image:alt" content="A tennis ball touching a white court line, with the words Call the Line">
+<meta name="twitter:image:alt" content="The Call the Line logo, a tennis ball with a white line through it, and the words You think it's easy being a line judge?">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)} [hidden]{display:none!important}</style>
 </head>
 <body>
