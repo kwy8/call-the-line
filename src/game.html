@@ -527,17 +527,38 @@ function unlockAudio(){ // mobile browsers only start audio from a user gesture
 }
 const UNLOCK_EVENTS=['pointerdown','pointerup','touchend','click','keydown'];
 UNLOCK_EVENTS.forEach(ev=>document.addEventListener(ev, unlockAudio, {passive:true}));
-function pock(){
-  if(S.muted) return;
+// The bounce "pock". Started when the bounce is noticed, it reaches the speakers one frame late (the bounce is seen
+// on the first frame after it) plus the audio output delay (~30 ms on built-in speakers, far more on Bluetooth), so it
+// trails the picture. Instead each ball's pock is scheduled ahead, for one frame after the bounce, when the bounce frame
+// is on screen. getOutputTimestamp maps audio time to performance.now() at the speaker, so output delay is included.
+const POCK_AFTER_BOUNCE_MS = 16;
+let pockVoice=null;   // the scheduled pock for the ball in flight, so it can be cancelled
+function pock(when){  // play the pock at audio-context time `when` (default: now)
+  if(S.muted) return null;
   try{
     if(!S.sound) S.sound=new (window.AudioContext||window.webkitAudioContext)();
     if(S.sound.state==='suspended') S.sound.resume();
-    const ac=S.sound, o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime;
+    const ac=S.sound, o=ac.createOscillator(), g=ac.createGain(), t=Math.max(when||0, ac.currentTime);
     o.type='triangle'; o.frequency.setValueAtTime(420,t); o.frequency.exponentialRampToValueAtTime(140,t+0.08);
     g.gain.setValueAtTime(0.35,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.12);
-    o.connect(g); g.connect(ac.destination); o.start(); o.stop(t+0.13);
-  }catch(e){}
+    o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+0.13);
+    return o;
+  }catch(e){ return null; }
 }
+// Schedule the pock for performance time `bounceMs`; returns false when it can't (no running audio yet, muted, or the
+// moment is too close), and the frame loop then plays it when it sees the bounce, as before.
+function schedulePock(bounceMs){
+  cancelPock();
+  const ac=S.sound;
+  if(S.muted || !ac || ac.state!=='running') return false;
+  const target=bounceMs+POCK_AFTER_BOUNCE_MS, ts=ac.getOutputTimestamp && ac.getOutputTimestamp();
+  const when = ts && ts.performanceTime ? ts.contextTime+(target-ts.performanceTime)/1000
+                                        : ac.currentTime+(target-performance.now())/1000-(ac.outputLatency||ac.baseLatency||0);
+  if(!(when > ac.currentTime+0.02)) return false;
+  pockVoice=pock(when);
+  return !!pockVoice;
+}
+function cancelPock(){ if(pockVoice){ try{ pockVoice.stop(0); }catch(e){} pockVoice=null; } }
 // Reactions: the crowd murmurs after an overrule, the umpire chimes after a close good call
 function murmur(){ // ~1 s of low filtered noise
   if(S.muted) return;
@@ -572,7 +593,7 @@ function loop(ts){
   const t=(ts-tStart)/1000+ball.t0;
   if(S.phase==='flight'||S.phase==='window'){
     stepBall(t);
-    if(S.phase==='flight'&&t>=0){ S.phase='window'; callT=ts; pock(); setButtons(true); }
+    if(S.phase==='flight'&&t>=0){ S.phase='window'; callT=ts; if(!pockVoice) pock(); pockVoice=null; setButtons(true); }
     if(S.phase==='window'){
       const el=(ts-callT)/1000, left=Math.max(0,1-el/callWindow);
       const bar=$('timer'); bar.style.width=left*100+'%'; bar.style.background = left<0.3?'var(--bad)':left<0.6?'#D28B1C':'var(--good)';
@@ -591,6 +612,7 @@ function startPoint(){
   $('timer').style.width='100%'; setButtons(false); hideOverlay(); toast('');
   clearTimeout(quipTimer); $('quip').hidden=true;
   S.phase='flight'; tStart=performance.now(); cancelAnimationFrame(raf); raf=requestAnimationFrame(loop); hud();
+  schedulePock(tStart-ball.t0*1000);   // the bounce happens at t = 0, i.e. -t0 seconds after the ball appears
 }
 function setButtons(on){ $('btnIn').disabled=!on; $('btnOut').disabled=!on; $('rulesBtn').disabled=on; $('statsBtn').disabled=on; }
 function makeCall(c){ if(S.phase!=='window'||resolved) return; resolve(c,(performance.now()-callT)/1000); }
@@ -1079,7 +1101,7 @@ function dailyExit(){ goHome(); }
 // Back to the start screen from anywhere: stop the ball, drop any pending review, reset the run.
 // A career run's score still counts towards the best; a daily attempt stays used.
 function goHome(){
-  S.run++; cancelAnimationFrame(raf); clearTimeout(eagleTimer); resolved=true;
+  S.run++; cancelAnimationFrame(raf); clearTimeout(eagleTimer); cancelPock(); resolved=true;
   if(S.mode==='career' && S.phase!=='end') saveBest();
   S.mode='career'; S.seat='sideline-right'; S.match='singles'; S.cond='day'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; S.rescued=false; R=Math.random;
   toast(''); $('quip').hidden=true; $('timer').style.width='0%'; setButtons(false);
@@ -1137,7 +1159,7 @@ function renderMute(){ // speaker with sound waves, or with a slash through it w
     : '<path d="M13 7a4.2 4.2 0 0 1 0 6M15.5 4.5a7.8 7.8 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'}</svg>Sound`;
   b.setAttribute('aria-pressed', String(!S.muted)); b.setAttribute('aria-label', 'Sound '+(S.muted?'off':'on'));
 }
-$('mute').onclick=()=>{ S.muted=!S.muted; renderMute(); try{localStorage.setItem('ctl.mute',S.muted?'1':'0')}catch(e){} };
+$('mute').onclick=()=>{ S.muted=!S.muted; if(S.muted) cancelPock(); renderMute(); try{localStorage.setItem('ctl.mute',S.muted?'1':'0')}catch(e){} };
 renderMute();
 
 // ---------- Boot ----------
