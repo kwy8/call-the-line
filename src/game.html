@@ -327,10 +327,12 @@ function mix(a, b, t){ // blend two #rrggbb colours
 // The exact line a seat judges in a match, e.g. "right doubles sideline"
 function lineName(id, match){ return SEATS[id].line(match); }
 const cap = t => t[0].toUpperCase()+t.slice(1);
-// Tournaments 1-2 (tiers 0-1): sideline and baseline seats; service-line seats from tournament 3
+// Seats open up through the tournaments: the sidelines in tournament 1 (tier 0), the baseline from tournament 2, the
+// service line from tournament 3. The daily asks for a tier past the last tournament, so it gets all four.
+const SEAT_FROM_TIER = { side:0, base:1, svc:2 };
 // One draw r picks the seat, and what is left of it picks that seat's view, so the daily still needs a single number.
 function pickSeat(tier, r){
-  const pool=Object.keys(SEAT_CHOICES).filter(c=>tier>=2||SEATS[SEAT_CHOICES[c][0]].view!=='svc'), x=r*pool.length;
+  const pool=Object.keys(SEAT_CHOICES).filter(c=>tier>=SEAT_FROM_TIER[SEATS[SEAT_CHOICES[c][0]].view]), x=r*pool.length;
   const i=Math.min(pool.length-1,Math.floor(x)), views=SEAT_CHOICES[pool[i]];
   return views[Math.min(views.length-1,Math.floor((x-i)*views.length))]; }
 

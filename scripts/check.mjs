@@ -206,16 +206,19 @@ check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1
   }
 }
 
-// ---------- seat assignment: four seats, the baseline and service-line seats from either end ----------
+// ---------- seat assignment: four seats opening up by tournament, the baseline and service-line seats from either end ----------
 {
   const views = Object.entries(g.SEAT_CHOICES).flatMap(([c, vs]) => vs.map(v => [v, c])), seatOf = Object.fromEntries(views);
   check(Object.keys(g.SEAT_CHOICES).length === 4, `there must be four seats, found ${Object.keys(g.SEAT_CHOICES).join(', ')}`);
   for (let tier = 0; tier < 5; tier++) {
     const seats = {}, viewCount = {}, N = 4000;
     for (let i = 0; i < N; i++) { const v = g.pickSeat(tier, (i + 0.5) / N); viewCount[v] = (viewCount[v] || 0) + 1; seats[seatOf[v]] = (seats[seatOf[v]] || 0) + 1; }
-    const expected = tier >= 2 ? 4 : 3;
+    // tournament 1: sidelines only; tournament 2: plus the baseline; tournament 3 on: plus the service line
+    const expected = tier >= 2 ? 4 : tier === 1 ? 3 : 2;
     check(Object.keys(viewCount).every(v => seatOf[v]), `tier ${tier}: pickSeat returned a view that is not one of the four seats`);
     check(Object.keys(seats).length === expected && Object.values(seats).every(n => Math.abs(n - N / expected) <= 1), `tier ${tier}: seats ${JSON.stringify(seats)}, expected ${expected} seats equally often`);
+    check('sideline-left' in seats && 'sideline-right' in seats, `tier ${tier}: both sideline seats must be offered`);
+    check((tier >= 1) === ('baseline' in seats), `tier ${tier}: the baseline ${tier >= 1 ? 'must' : 'must not'} be offered`);
     check((tier >= 2) === ('service-line' in seats), `tier ${tier}: the service line ${tier >= 2 ? 'must' : 'must not'} be offered`);
     for (const [c, vs] of Object.entries(g.SEAT_CHOICES)) if (seats[c] && vs.length > 1)
       check(vs.every(v => Math.abs(viewCount[v] - seats[c] / vs.length) <= 1), `tier ${tier}: ${c} must come from either end equally often: ${vs.map(v => v + ' ' + viewCount[v]).join(', ')}`);
