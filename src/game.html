@@ -1020,9 +1020,11 @@ function statsCard(){
     <div class="subhead">Badges · ${ST.badges.length} of ${BADGES.length}</div>
     <div class="badges">${BADGES.map(b=>{ const got=ST.badges.includes(b.id);
       return `<div class="badge-cell ${got?'':'locked'}" title="${b.tip}${got?'':' (not yet earned)'}">${emblem(b.id,56)}<span>${b.name}</span></div>`; }).join('')}</div>
+    <span class="hint lbline"></span>
     <span class="hint">Saved on this device</span>
     <div class="row"><button class="btn" id="go">Back</button></div>
   `);
+  nameLine();
 }
 let badgeQueue=[], badgeBusy=false;
 function badgeToast(badge){ badgeQueue.push(badge); if(!badgeBusy) nextBadge(); }
@@ -1130,7 +1132,9 @@ function dailyIntro(){
     ${seatDiagram(seat, match)}
     <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
     <button class="linkbtn" id="lb" type="button">Leaderboard</button>
+    ${player() ? '<span class="hint lbline"></span>' : ''}
   `);
+  nameLine();
   $('go').onclick=()=> player() ? dailyStart() : nameCard(dailyStart);
   $('lb').onclick=()=>leaderboardCard(key);
   $('back').onclick=dailyExit;
@@ -1181,6 +1185,32 @@ function topList(top, myRank){
     `<li class="${e.rank===myRank?'me':''}"><span class="r">${e.rank}</span><span class="n">${esc(e.name)}</span><b>${Number(e.score).toLocaleString()}</b></li>`).join('')}</ol>`;
 }
 const LB_DOWN = 'The leaderboard is unavailable right now. Your result is saved on this device.';
+// "Leaderboard name: Kwy · Change" (or "Not on the leaderboard · Add a name") in any .lbline of the current card
+function nameLine(){
+  const el=document.querySelector?.('#card .lbline'); if(!el) return;
+  const p=player();
+  el.innerHTML = p && p.name ? `Leaderboard name: <b>${esc(p.name)}</b> · <button class="linkbtn" id="chgName" type="button">Change</button>`
+                             : `Not on the leaderboard · <button class="linkbtn" id="chgName" type="button">Add a name</button>`;
+  $('chgName').onclick=changeName;
+}
+// Change (or add) the display name from the Stats card or the daily intro. The card that was showing is set aside and
+// comes back on Save or Cancel. The player id stays the same, so later dailies stay under the same player.
+function changeName(){
+  const p=player()||{ id:newPlayerId(), name:null };
+  sideCard(`
+    <span class="tag">Daily leaderboard</span>
+    <h2>Display name</h2>
+    <p>Shown with your score on the public daily leaderboard. A score you already sent today keeps the name it was sent with.</p>
+    <input class="name" id="pname" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="Your name" aria-label="Display name" value="${esc(p.name||'')}">
+    <div class="row"><button class="btn" id="saveName">Save</button><button class="btn ghost" id="go">Cancel</button></div>
+    <span class="hint" id="nameMsg"></span>
+  `);
+  const back=$('go').onclick;
+  const save=()=>{ const n=cleanName($('pname').value); if(!n){ $('nameMsg').textContent='Type a name, or cancel.'; $('pname').focus(); return; }
+    savePlayer({ id:p.id, name:n }); back(); nameLine(); };
+  $('saveName').onclick=save; $('pname').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); save(); } };
+  $('pname').focus(); $('pname').select?.();
+}
 // Asked once, before the first daily. "Play without" keeps the player off the leaderboard.
 function nameCard(then){
   const p=player()||{ id:newPlayerId(), name:null };
