@@ -2,7 +2,10 @@
 //
 //   POST /daily/score  {day, id, name, score, correct, avgMs}  -> {accepted, rank, total, top}  (top 10, including this score)
 //   GET  /daily/top?day=YYYY-MM-DD                             -> {day, total, top: [{rank, name, score, correct, avgMs}]}  (top 50)
-//   GET  /daily/rank?day=YYYY-MM-DD&id=...                     -> {day, rank, total}  (rank is null when the id has no score)
+//   GET  /daily/rank?day=YYYY-MM-DD&id=...                     -> {day, rank, total, topScore}  (rank null when the id has no score;
+//                                                                  answers cached 5 min, e.g. for the game's "Yesterday" line)
+//   GET  /weekly/top?day=YYYY-MM-DD[&id=...]                   -> {day, from, players, top: [{rank, name, total, days}], me}
+//                                                                  (rolling 7 days ending on day, top 50, cached 5 min)
 //
 // Storage: one key per score, `s:<day>:<id>`, with the entry in the key's metadata, so a day's board is one paged
 // list() with no per-key reads and two players submitting at once can't overwrite each other. The only KV write is
@@ -10,7 +13,7 @@
 // hash of the IP, and falls back to a per-isolate counter when the binding is missing; neither touches KV. A day's
 // sorted board is kept in the Cache API for 30 s, so /daily/top and /daily/rank only list KV on a cache miss.
 
-export const BALLS = 20, TOP = 50, NAME_MAX = 16, RATE_LIMIT = 30, BOARD_TTL = 30;
+export const BALLS = 20, TOP = 50, NAME_MAX = 16, RATE_LIMIT = 30, BOARD_TTL = 30, SLOW_TTL = 300, WEEK = 7;
 
 // Score bounds, mirroring resolve() in src/game.html: a correct call scores round((100 + speed) * mult), where speed
 // runs 0..100 with how fast the call was and mult = 1 + min(4, floor(streak / 3)) * 0.5. A wrong call scores nothing
@@ -31,13 +34,16 @@ export function cleanName(raw) {
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/, ID = /^[a-z0-9]{16,40}$/;
 const isoDay = t => new Date(t).toISOString().slice(0, 10);
+// A real calendar date in YYYY-MM-DD form. Date.parse gives NaN for impossible months (2026-13-01) and rolls over
+// impossible days (2026-02-30 -> 2026-03-02), so both are caught by parsing and printing it back.
+const validDay = day => { if (typeof day !== 'string' || !DAY.test(day)) return false; const t = Date.parse(day + 'T12:00:00Z'); return !Number.isNaN(t) && isoDay(t) === day; };
 // A player's local calendar date is within a day of the UTC date, so only yesterday, today and tomorrow (UTC) are open.
 const openDays = now => [isoDay(now - 864e5), isoDay(now), isoDay(now + 864e5)];
 
 // Returns the reason a submission is rejected, or null when it is acceptable.
 export function invalid(b, now) {
   if (!b || typeof b !== 'object') return 'body must be a JSON object';
-  if (typeof b.day !== 'string' || !DAY.test(b.day) || isoDay(Date.parse(b.day + 'T12:00:00Z')) !== b.day) return 'day must be YYYY-MM-DD';
+  if (!validDay(b.day)) return 'day must be YYYY-MM-DD';
   if (!openDays(now).includes(b.day)) return 'day is not open for scores';
   if (typeof b.id !== 'string' || !ID.test(b.id)) return 'id must be 16-40 lowercase letters or digits';
   if (!Number.isInteger(b.correct) || b.correct < 0 || b.correct > BALLS) return `correct must be 0-${BALLS}`;
@@ -109,6 +115,34 @@ async function freshBoard(kv, cache, url, day, now) {
   return { at: now, rows };
 }
 
+// Answers that may be up to SLOW_TTL (5 min) old: a player's rank on a day, and the weekly board. Same scheme as the
+// board: an internal Cache API URL, the time it was computed stored with it.
+async function cachedJson(cache, key, now, ttl) {
+  const hit = cache && await cache.match(key);
+  if (!hit) return null;
+  const { at, body } = await hit.json();
+  return now - at < ttl * 1000 ? body : null;
+}
+async function storeJson(cache, key, now, ttl, body) {
+  if (cache) await cache.put(key, new Response(JSON.stringify({ at: now, body }),
+    { headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${ttl}` } }));
+}
+const shiftDay = (day, n) => isoDay(Date.parse(day + 'T12:00:00Z') + n * 864e5);
+// The rolling week ending on `day`: each player's daily scores summed, with the name from their latest day there.
+// Best first: higher total, then the player who first scored earlier.
+async function weekBoard(kv, cache, url, day, now) {
+  const players = new Map();
+  for (let k = WEEK - 1; k >= 0; k--) {                          // oldest day first, so the latest name wins
+    const { rows } = await freshBoard(kv, cache, url, shiftDay(day, -k), now);
+    for (const r of rows) {
+      const p = players.get(r.id) || { id: r.id, total: 0, days: 0, first: r.t };
+      p.total += r.s; p.days++; p.name = r.n; p.first = Math.min(p.first, r.t);
+      players.set(r.id, p);
+    }
+  }
+  return [...players.values()].sort((a, b) => b.total - a.total || a.first - b.first);
+}
+
 // CORS: ALLOWED_ORIGIN is a comma-separated list of origins (or "*"). A request whose Origin is on the list gets that
 // origin echoed back; any other origin, or no Origin at all, gets no CORS headers, so browsers refuse the response.
 export function corsHeaders(allowed, origin) {
@@ -159,8 +193,29 @@ export async function handle(request, env, now = Date.now(), cache = globalThis.
                   { 'Cache-Control': 'public, max-age=30' });
     const id = url.searchParams.get('id') || '';
     if (!ID.test(id)) return reply(400, { error: 'id must be 16-40 lowercase letters or digits' });
-    const i = rows.findIndex(r => r.id === id);
-    return reply(200, { day, rank: i < 0 ? null : i + 1, total: rows.length });
+    const key = `https://${url.host}/__rank/${day}/${id}`;
+    let body = await cachedJson(cache, key, now, SLOW_TTL);
+    if (!body) {
+      const i = rows.findIndex(r => r.id === id);
+      body = { day, rank: i < 0 ? null : i + 1, total: rows.length, topScore: rows.length ? rows[0].s : null };
+      await storeJson(cache, key, now, SLOW_TTL, body);
+    }
+    return reply(200, body, { 'Cache-Control': `public, max-age=${SLOW_TTL}` });
+  }
+
+  if (url.pathname === '/weekly/top') {
+    if (request.method !== 'GET') return reply(405, { error: 'use GET' });
+    const day = url.searchParams.get('day') || '', id = url.searchParams.get('id') || '';
+    if (!validDay(day)) return reply(400, { error: 'day must be YYYY-MM-DD' });
+    if (id && !ID.test(id)) return reply(400, { error: 'id must be 16-40 lowercase letters or digits' });
+    const key = `https://${url.host}/__weekly/${day}`;
+    let rows = await cachedJson(cache, key, now, SLOW_TTL);
+    if (!rows) { rows = await weekBoard(kv, cache, url, day, now); await storeJson(cache, key, now, SLOW_TTL, rows); }
+    const i = id ? rows.findIndex(r => r.id === id) : -1;
+    return reply(200, { day, from: shiftDay(day, -(WEEK - 1)), players: rows.length,
+      top: rows.slice(0, TOP).map((r, k) => ({ rank: k + 1, name: r.name, total: r.total, days: r.days })),
+      me: i < 0 ? null : { rank: i + 1, total: rows[i].total, days: rows[i].days } },
+      { 'Cache-Control': `public, max-age=${SLOW_TTL}` });
   }
   return reply(404, { error: 'not found' });
 }

@@ -49,7 +49,7 @@ async function call(method, path, body, { ip = `10.0.${++ipCounter >> 8}.${ipCou
   const text = await res.text();
   return { status: res.status, headers: res.headers, body: text ? JSON.parse(text) : null };
 }
-const score = (n, s, c, a = 600, name = 'P' + n) => call('POST', '/daily/score', { day: DAY, id: id(n), name, score: s, correct: c, avgMs: a });
+const score = (n, s, c, a = 600, name = 'P' + n, now = NOW) => call('POST', '/daily/score', { day: DAY, id: id(n), name, score: s, correct: c, avgMs: a }, { now });
 
 // ---------- score bounds ----------
 check(maxScore(0) === 0 && minScore(0) === 0, 'bounds for 0 correct');
@@ -72,6 +72,7 @@ const bad = [
   [{ day: DAY, id: id(9), name: 'x', score: '1500', correct: 10, avgMs: 500 }, 'score as a string'],
   [{ day: '2026-10-05', id: id(9), name: 'x', score: 1500, correct: 10, avgMs: 500 }, 'day not open'],
   [{ day: '2026-02-30', id: id(9), name: 'x', score: 1500, correct: 10, avgMs: 500 }, 'impossible date'],
+  [{ day: '2026-13-01', id: id(9), name: 'x', score: 1500, correct: 10, avgMs: 500 }, 'impossible month (used to throw instead of 400)'],
   [{ day: DAY, id: 'short', name: 'x', score: 1500, correct: 10, avgMs: 500 }, 'bad id'],
   [{ day: DAY, id: id(9), name: 'x', score: 1500, correct: 10, avgMs: -1 }, 'negative avgMs'],
 ];
@@ -160,6 +161,45 @@ check((await call('GET', `/__board/${DAY}`)).status === 404, 'the internal cache
 const kvWrites = ops.put;
 cache = undefined;
 
+// ---------- /daily/rank: top score, cached 5 minutes ----------
+env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: '*' }; cache = memoryCache();
+await score(1, 4000, 16, 500); await score(2, 6000, 18, 500);
+r = await call('GET', `/daily/rank?day=${DAY}&id=${id(1)}`);
+check(r.body.rank === 2 && r.body.total === 2 && r.body.topScore === 6000, `rank with top score: ${JSON.stringify(r.body)}`);
+check(r.headers.get('Cache-Control') === 'public, max-age=300', `rank is cacheable for 5 minutes: ${r.headers.get('Cache-Control')}`);
+await score(3, 8000, 19, 500, 'P3', NOW + 60000);
+r = await call('GET', `/daily/rank?day=${DAY}&id=${id(1)}`, undefined, { now: NOW + 120000 });
+check(r.body.rank === 2 && r.body.topScore === 6000, `within 5 minutes the cached rank answer stands: ${JSON.stringify(r.body)}`);
+r = await call('GET', `/daily/rank?day=${DAY}&id=${id(1)}`, undefined, { now: NOW + 301000 });
+check(r.body.rank === 3 && r.body.total === 3 && r.body.topScore === 8000, `after 5 minutes it is recomputed: ${JSON.stringify(r.body)}`);
+r = await call('GET', `/daily/rank?day=${DAY}&id=${id(99)}`); check(r.body.rank === null && r.body.topScore === 8000, `rank for an id with no score: ${JSON.stringify(r.body)}`);
+
+// ---------- /weekly/top: rolling 7-day totals per player id ----------
+env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: '*' }; cache = memoryCache();
+const dayAt = k => new Date(NOW + k * 864e5).toISOString().slice(0, 10);   // k days from DAY
+const post = (k, n, s, c, name) => call('POST', '/daily/score', { day: dayAt(k), id: id(n), name, score: s, correct: c, avgMs: 500 }, { now: NOW + k * 864e5 });
+await post(-7, 1, 9000, 20, 'Old');          // eight days back from DAY: outside the window
+await post(-6, 1, 1000, 10, 'Alice');
+await post(-3, 1, 2000, 15, 'Alice');
+await post(0, 1, 3000, 16, 'Alice B');        // latest name wins
+await post(-5, 2, 5000, 18, 'Bob');
+await post(-1, 3, 500, 5, 'Cy'); await post(0, 3, 600, 6, 'Cy');
+r = await call('GET', `/weekly/top?day=${DAY}&id=${id(3)}`, undefined, { now: NOW + 3600000 });
+check(r.status === 200 && r.body.from === dayAt(-6) && r.body.day === DAY, `weekly window: ${r.body.from}..${r.body.day}`);
+check(JSON.stringify(r.body.top.map(e => [e.name, e.total, e.days])) === JSON.stringify([['Alice B', 6000, 3], ['Bob', 5000, 1], ['Cy', 1100, 2]]),
+  `weekly totals (8th day back excluded, latest name, days played): ${JSON.stringify(r.body.top)}`);
+check(r.body.players === 3 && r.body.me && r.body.me.rank === 3 && r.body.me.total === 1100, `weekly rank for the asking player: ${JSON.stringify(r.body.me)}`);
+check(r.body.top.every(e => !('id' in e)), 'weekly board must not expose ids');
+check(r.headers.get('Cache-Control') === 'public, max-age=300', 'weekly board is cacheable for 5 minutes');
+r = await call('GET', `/weekly/top?day=${DAY}`, undefined, { now: NOW + 3600000 }); check(r.body.me === null, 'no id, no "me"');
+await post(0, 2, 4000, 17, 'Bob');                                     // Bob passes Alice
+r = await call('GET', `/weekly/top?day=${DAY}`, undefined, { now: NOW + 3600000 + 120000 });
+check(r.body.top[0].name === 'Alice B', `within 5 minutes the cached weekly board stands: ${r.body.top[0].name}`);
+r = await call('GET', `/weekly/top?day=${DAY}`, undefined, { now: NOW + 3600000 + 301000 });
+check(r.body.top[0].name === 'Bob' && r.body.top[0].total === 9000, `after 5 minutes the weekly board is recomputed: ${JSON.stringify(r.body.top[0])}`);
+for (const bad of ['2026-13-01', '2026-02-30', 'yesterday']) { r = await call('GET', `/weekly/top?day=${bad}`); check(r.status === 400, `weekly with day=${bad}: ${r.status}`); }
+r = await call('GET', `/weekly/top?day=${DAY}&id=nope`); check(r.status === 400, `weekly with a bad id: ${r.status}`);
+
 // ---------- CORS: echo back an allowed origin, nothing for any other ----------
 const ALLOWED = ['https://calltheline.site', 'https://www.calltheline.site', 'https://kwy8.github.io', 'capacitor://localhost', 'https://localhost', 'http://localhost:3000'];
 env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: ALLOWED.join(', ') };   // spaces after commas are tolerated
@@ -183,4 +223,4 @@ r = await call('OPTIONS', '/daily/score', undefined, { origin: 'https://anything
 check(r.headers.get('Access-Control-Allow-Origin') === '*', '"*" still allows any origin');
 
 if (failures.length) { console.error(`worker check failed: ${failures.length} problem(s)`); for (const f of failures) console.error('  ' + f); process.exit(1); }
-console.log('worker check passed: scores, one per id per day, validation, names, ordering, rank, fresh top 10 on submit, top 50, rate limit (binding and fallback, no KV), board cache, one KV write per score (' + kvWrites + ' writes for 6 scores), CORS allowlist');
+console.log('worker check passed: scores, one per id per day, validation, names, ordering, rank, fresh top 10 on submit, top 50, rate limit (binding and fallback, no KV), board cache, one KV write per score (' + kvWrites + ' writes for 6 scores), rank with top score cached 5 min, weekly 7-day board, CORS allowlist');

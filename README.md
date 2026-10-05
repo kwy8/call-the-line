@@ -43,7 +43,8 @@ The daily has an optional public leaderboard, served by a Cloudflare Worker in `
 ```
 POST /daily/score   {day, id, name, score, correct, avgMs}  ->  {accepted, rank, total, top}   (top: today's top 10)
 GET  /daily/top?day=YYYY-MM-DD                              ->  {day, total, top}               (top 50)
-GET  /daily/rank?day=YYYY-MM-DD&id=...                      ->  {day, rank, total}
+GET  /daily/rank?day=YYYY-MM-DD&id=...                      ->  {day, rank, total, topScore}  (cached 5 min)
+GET  /weekly/top?day=YYYY-MM-DD[&id=...]                    ->  {day, from, players, top, me} (rolling 7 days, cached 5 min)
 ```
 
 Browsers may call it only from the origins in `ALLOWED_ORIGIN` in `worker/wrangler.toml` (a comma-separated list; the Worker echoes back the matching origin and sends no CORS headers to any other). Add an origin there and redeploy if the game is served from somewhere new.
