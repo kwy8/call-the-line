@@ -966,12 +966,15 @@ function intro(){
       <button class="linkbtn" id="rulesLink" type="button">Rules</button>
     </div>
     ${S.best?`<span class="hint">Best: ${S.best.toLocaleString()} pts · ${TIERS[Math.min(S.bestTier,TIERS.length-1)].name}</span>`:''}
+    ${(n=>n?`<span class="hint"><b>${streakText(n)}</b></span>`:'')(streakNow(streakLoad(), dailyToday().key))}
+    <span class="hint installHint" hidden></span>
   `);
   $('rulesLink').onclick=rulesCard;
   $('homeWrap').hidden=true;
   $('go').onclick=()=>{ S.mode='career'; S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); };
   $('daily').onclick=()=> dailyLoad() ? dailyResults() : dailyIntro();
   $('practice').onclick=practiceCard;
+  installHint();
 }
 function sideCard(html){ // shows html; its #go button puts back exactly the card that was showing
   const c=$('card'), saved=document.createDocumentFragment();
@@ -1128,24 +1131,88 @@ function dailyIntro(){
     <span class="tag">Daily challenge</span>
     <h2>Daily #${n}</h2>
     <p>Same ${DAILY_N} balls for everyone today. One attempt.</p>
+    <span class="hint yline" hidden></span>
     <div class="chips"><span class="chip"><b>${lv.name}</b> level</span><span class="chip">up to <b>${Math.round(T.speed[1]*3.6)}</b> km/h</span><span class="chip"><b>${T.win}</b> s to call</span><span class="chip"><b>${CONDITIONS[cond].name}</b></span></div>
     ${seatDiagram(seat, match)}
     <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
-    <button class="linkbtn" id="lb" type="button">Leaderboard</button>
-    ${player() ? '<span class="hint lbline"></span>' : ''}
+    <span class="hint"><button class="linkbtn" id="lb" type="button">Leaderboard</button>${player() ? ' · <span class="lbline" data-short="1"></span>' : ''}</span>
   `);
-  nameLine();
+  nameLine(); yesterdayLine(key, n);
   $('go').onclick=()=> player() ? dailyStart() : nameCard(dailyStart);
   $('lb').onclick=()=>leaderboardCard(key);
   $('back').onclick=dailyExit;
 }
+// Calendar day keys (YYYY-MM-DD, local). shiftKey steps whole days with UTC arithmetic on the key itself, so month
+// and year ends and daylight-saving changes can't skip or repeat a day.
+const shiftKey = (key, n) => new Date(Date.parse(key + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+function rawDaily(){ try{ return JSON.parse(localStorage.getItem('ctl.daily')); }catch(e){ return null; } }  // the last attempt, any day
+
+// ---------- Daily streak ----------
+// Consecutive calendar days with a daily played (an attempt counts once it starts), kept in ctl.streak as { last, n }.
+function streakLoad(){ try{ const t=JSON.parse(localStorage.getItem('ctl.streak')); if(t && typeof t.last==='string' && t.n>0) return t; }catch(e){} return null; }
+function streakAfterPlaying(prev, today){
+  if(!prev) return { last:today, n:1 };
+  if(prev.last===today) return prev;
+  return { last:today, n: prev.last===shiftKey(today,-1) ? prev.n+1 : 1 };
+}
+function streakNow(t, today){ return t && (t.last===today || t.last===shiftKey(today,-1)) ? t.n : 0; }   // 0 once a day is missed
+const streakText = n => `${n}-day streak`;
+
+// ---------- Share text ----------
+// "Call the Line #N · Pro · 17/20 · 🟩🟩🟥…" (one square per ball, in order: green correct, red overruled or missed),
+// then the rank if known, then the link. Nothing about the balls themselves.
+function shareText(r, level, correct, rank, url){
+  const grid=Array.from({length:DAILY_N},(_,i)=>r.results[i]?'🟩':'🟥').join('');
+  return [`Call the Line #${r.n} · ${level} · ${correct}/${DAILY_N} · ${grid}`,
+          rank && rank.rank ? `${ordinal(rank.rank)} of ${rank.total.toLocaleString()} today` : null, url].filter(Boolean).join('\n');
+}
+let todayRank=null;   // { key, rank, total } once the leaderboard has answered for today's attempt
+
+// ---------- Yesterday line (daily intro) ----------
+function yesterdayLine(today, n){
+  const el=()=>document.querySelector?.('#card .yline'); if(!el() || n<=1) return;
+  const y=shiftKey(today,-1), raw=rawDaily(), local=raw && raw.key===y ? raw : null, p=player();
+  const mine = local ? `Yesterday: ${local.results.filter(Boolean).length}/${DAILY_N}` : null;
+  const set=t=>{ const e=el(); if(e){ e.textContent=t||''; e.hidden=!t; } };
+  if(!p){ set(mine || "Yesterday: you didn't play"); return; }
+  set(mine);   // what this device knows, until the leaderboard answers
+  api(`/daily/rank?day=${y}&id=${p.id}`).then(b=>{
+    if(b.rank) set(`Yesterday: you were ${ordinal(b.rank)} of ${b.total.toLocaleString()}${b.topScore!=null?` · top ${Number(b.topScore).toLocaleString()}`:''}`);
+    else set(mine ? `${mine} · not on the leaderboard` : "Yesterday: you didn't play");
+  }).catch(()=>{});   // offline: keep what this device knows
+}
+
+// ---------- Add to home screen ----------
+// After the second daily, a one-line hint: the browser's own install prompt where it offers one (beforeinstallprompt),
+// a Share-menu hint on iOS, nothing elsewhere. Not shown once installed, inside the app, or after Dismiss.
+let installPrompt=null;
+window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); installPrompt=e; installHint(); });
+window.addEventListener('appinstalled', ()=>{ installPrompt=null; try{ localStorage.setItem('ctl.install','done'); }catch(e){} installHint(); });
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent||'') || (/Macintosh/.test(navigator.userAgent||'') && navigator.maxTouchPoints>1);
+function installHint(){
+  const el=document.querySelector?.('#card .installHint'); if(!el) return;
+  let off=false; try{ off=!!localStorage.getItem('ctl.install'); }catch(e){}
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone || window.Capacitor;
+  const how = installPrompt ? 'prompt' : isIOS() ? 'ios' : null;
+  if(off || standalone || ST.dailies<2 || !how){ el.hidden=true; return; }
+  el.hidden=false;
+  el.innerHTML = how==='prompt'
+    ? `Play from your home screen · <button class="linkbtn" id="installYes" type="button">Add</button> · <button class="linkbtn" id="installNo" type="button">Dismiss</button>`
+    : `Add to Home Screen from the Share menu · <button class="linkbtn" id="installNo" type="button">Dismiss</button>`;
+  $('installNo').onclick=()=>{ try{ localStorage.setItem('ctl.install','dismissed'); }catch(e){} el.hidden=true; };
+  if($('installYes')) $('installYes').onclick=async()=>{ const p=installPrompt; installPrompt=null; el.hidden=true; if(p){ p.prompt(); await p.userChoice.catch(()=>{}); } };
+}
+
 function dailyStart(){
   if(dailyLoad()){ dailyResults(); return; }
   const { key, n }=dailyToday();
   R=seeded('ctl-daily-'+key);
   S.mode='daily'; S.seat=dailySeat(key); S.match=dailyMatch(key); S.cond=dailyCond(key); S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0;
+  const prev=rawDaily();   // before it is replaced: lets a streak continue from the last attempt for players new to it
   S.daily={ key, n, level:dailyLevel(key), results:[], pts:0 };
   dailySave(); updateStats(st=>{ st.dailies++; });
+  const base = streakLoad() || (prev && prev.key ? { last:prev.key, n:1 } : null);
+  try{ localStorage.setItem('ctl.streak', JSON.stringify(streakAfterPlaying(base, key))); }catch(e){}
   $('tName').textContent=`Daily #${n}`; hud();
   startPoint();
 }
@@ -1188,9 +1255,9 @@ const LB_DOWN = 'The leaderboard is unavailable right now. Your result is saved 
 // "Leaderboard name: Kwy · Change" (or "Not on the leaderboard · Add a name") in any .lbline of the current card
 function nameLine(){
   const el=document.querySelector?.('#card .lbline'); if(!el) return;
-  const p=player();
-  el.innerHTML = p && p.name ? `Leaderboard name: <b>${esc(p.name)}</b> · <button class="linkbtn" id="chgName" type="button">Change</button>`
-                             : `Not on the leaderboard · <button class="linkbtn" id="chgName" type="button">Add a name</button>`;
+  const p=player(), short=el.dataset && el.dataset.short;   // short: next to the Leaderboard link on the daily intro
+  el.innerHTML = p && p.name ? `${short?'Playing as':'Leaderboard name:'} <b>${esc(p.name)}</b> · <button class="linkbtn" id="chgName" type="button">Change</button>`
+                             : `Not on the ${short?'board':'leaderboard'} · <button class="linkbtn" id="chgName" type="button">Add a name</button>`;
   $('chgName').onclick=changeName;
 }
 // Change (or add) the display name from the Stats card or the daily intro. The card that was showing is set aside and
@@ -1228,10 +1295,24 @@ function nameCard(then){
   $('skip').onclick=()=>{ savePlayer({ id:p.id, name:null }); then(); };
   $('pname').focus();
 }
+// Two tabs: today's daily, and the rolling 7 days (each player's daily scores summed, from the Worker).
 function leaderboardCard(day){
-  sideCard(`<h2>Today's leaderboard</h2><div class="board" id="board"><span class="hint">Loading…</span></div><div class="row"><button class="btn" id="go">Back</button></div>`);
-  api(`/daily/top?day=${day}`).then(t=>{ const el=$('board'); if(el) el.innerHTML=topList(t.top, null) + `<span class="hint">${t.total.toLocaleString()} played today</span>`; })
-    .catch(()=>{ const el=$('board'); if(el) el.innerHTML=`<span class="hint">The leaderboard is unavailable right now.</span>`; });
+  sideCard(`<h2>Leaderboard</h2>
+    <div class="levels" role="tablist" aria-label="Leaderboard"><button type="button" role="tab" data-tab="day" aria-pressed="true">Today</button><button type="button" role="tab" data-tab="week" aria-pressed="false">7 days</button></div>
+    <div class="board" id="board"><span class="hint">Loading…</span></div><div class="row"><button class="btn" id="go">Back</button></div>`);
+  const show=tab=>{
+    for(const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-pressed', String(b.dataset.tab===tab));
+    const el=()=>$('board'); el().innerHTML='<span class="hint">Loading…</span>';
+    const down=()=>{ if(el()) el().innerHTML=`<span class="hint">The leaderboard is unavailable right now.</span>`; };
+    if(tab==='day') api(`/daily/top?day=${day}`).then(t=>{ if(el()) el().innerHTML=topList(t.top, null) + `<span class="hint">${t.total.toLocaleString()} played today</span>`; }).catch(down);
+    else { const p=player();
+      api(`/weekly/top?day=${day}${p?`&id=${p.id}`:''}`).then(w=>{ if(!el()) return;
+        el().innerHTML=(w.me?`<span class="rankline">You're <b>${ordinal(w.me.rank)}</b> of ${w.players.toLocaleString()} this week</span>`:'')
+          + topList(w.top.map(e=>({ rank:e.rank, name:e.name, score:e.total })), w.me?w.me.rank:null)
+          + `<span class="hint">Daily scores added up, ${w.from} to ${w.day}</span>`; }).catch(down); }
+  };
+  for(const b of document.querySelectorAll('[data-tab]')) b.onclick=()=>show(b.dataset.tab);
+  show('day');
 }
 // After the daily: submit (the Worker keeps only the first score per player per day, so re-sending is harmless),
 // then show the rank and today's top 10.
@@ -1243,6 +1324,7 @@ async function showBoard(r, correct){
       const res=await api('/daily/score', { day:r.key, id:p.id, name:p.name, score:r.pts||0, correct,
         avgMs: r.rtN ? Math.min(5000, Math.round(r.rtSum/r.rtN*1000)) : 0 });
       rank=res.rank; total=res.total; top=res.top;  // the submit returns a fresh top 10; /daily/top may be cached
+      todayRank={ key:r.key, rank, total };          // for the share text
     }
     if(!top) top=(await api(`/daily/top?day=${r.key}`)).top;
     if(!el()) return;
@@ -1260,17 +1342,16 @@ function dailyResults(){
   card(`
     <span class="tag ${acc>=75?'good':''}">Daily #${r.n}</span>
     <h2>${correct}/${DAILY_N} called right</h2>
-    <div class="chips"><span class="chip"><b>${level}</b> level</span><span class="chip"><b>${acc}%</b> accuracy</span><span class="chip"><b>${(r.pts||0).toLocaleString()}</b> pts</span></div>
+    <div class="chips"><span class="chip"><b>${level}</b> level</span><span class="chip"><b>${acc}%</b> accuracy</span><span class="chip"><b>${(r.pts||0).toLocaleString()}</b> pts</span>${(n=>n?`<span class="chip"><b>${streakText(n)}</b></span>`:'')(streakNow(streakLoad(), r.key))}</div>
     <div class="dots" aria-label="Call by call results">${dots}</div>
     ${played<DAILY_N?`<span class="hint">Stopped after ${played} of ${DAILY_N}. The rest count as missed.</span>`:''}
     <div class="board" id="board"><span class="hint">Checking today's leaderboard…</span></div>
     <div class="row"><button class="btn" id="share">Copy result</button><button class="btn ghost" id="back">Back</button></div>
     <span class="hint" id="shareMsg">Next daily in ${untilMidnight()}</span>
+    <span class="hint installHint" hidden></span>
   `);
-  $('share').onclick=()=>{
-    const grid=Array.from({length:DAILY_N},(_,i)=>r.results[i]?'🟩':'🟥').join('');
-    copyText(`Call the Line daily #${r.n} · ${level} · ${correct}/${DAILY_N}\n${grid}\n${location.href.split('#')[0]}`);
-  };
+  installHint();
+  $('share').onclick=()=> copyText(shareText(r, level, correct, todayRank && todayRank.key===r.key ? todayRank : null, location.href.split('#')[0]));
   $('back').onclick=dailyExit;
   showBoard(r, correct);
 }

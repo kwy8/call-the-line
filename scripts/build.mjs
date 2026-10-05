@@ -14,6 +14,8 @@ const doc = `<!doctype html>
 <meta name="theme-color" content="#F3F5F0">
 <link rel="icon" href="brand/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="brand/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="${TITLE}">
 <meta property="og:type" content="website">
 <meta property="og:url" content="${SITE}">
 <meta property="og:title" content="${TITLE}">
@@ -40,6 +42,12 @@ writeFileSync('www/index.html', doc);
 // the brand folder (icons, logo, link-preview image, font licence) goes alongside, as www/brand/
 rmSync('www/brand', { recursive: true, force: true });
 cpSync('src/brand', 'www/brand', { recursive: true });
+// web app manifest, so the game can be added to a home screen; paths are relative, so it works at / and at a subpath
+writeFileSync('www/manifest.webmanifest', JSON.stringify({
+  name: TITLE, short_name: TITLE, description: DESC, start_url: './', scope: './', display: 'standalone',
+  background_color: '#F3F5F0', theme_color: '#F3F5F0',
+  icons: [ { src: 'brand/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: 'brand/icon-512.png', sizes: '512x512', type: 'image/png' } ],
+}, null, 2) + '\n');
 // the privacy and Impressum page, copied unchanged
 cpSync('src/privacy.html', 'www/privacy.html');
-console.log('built www/index.html (' + doc.length + ' bytes), www/brand/ and www/privacy.html');
+console.log('built www/index.html (' + doc.length + ' bytes), www/brand/, www/privacy.html and www/manifest.webmanifest');

@@ -37,7 +37,8 @@ if (!END.test(match[1])) fail('src/game.html script no longer ends with "})();"'
 const src = match[1].replace(END, `window.__ctl={ S, newBall, startPoint, resolve, dailyStart, proj, cam, SEATS,
   get ball(){ return ball; }, get W(){ return W; }, get H(){ return H; },
   LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, DAILY_LEVELS, TIERS, CONDITIONS, pickCond,
-  ST, nextStep, practiceStart, finishReplay, landDistance, pickSeat, SEAT_CHOICES, get replay(){ return replay; }, get PR(){ return PR; } };})();`);
+  ST, nextStep, practiceStart, finishReplay, landDistance, pickSeat, SEAT_CHOICES,
+  shiftKey, streakAfterPlaying, streakNow, streakLoad, shareText, get replay(){ return replay; }, get PR(){ return PR; } };})();`);
 
 // A seeded Math.random so every run checks the same balls and a failure can be reproduced.
 function mulberry32(a) { return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -280,6 +281,31 @@ check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1
   // no timer: run the frame loop for a minute without calling
   let ts = 1000; for (let i = 0; i < 3750; i++) { ts += 16; for (const f of frames.splice(0)) f(ts); }
   check(S.phase === 'window', `practice must not time out (phase ${S.phase} after a minute)`);
+}
+
+// ---------- daily streak and share text ----------
+{
+  const d = boot('2026-10-05T09:00:00', 31);
+  for (const [k, n, want] of [['2026-03-01', -1, '2026-02-28'], ['2028-03-01', -1, '2028-02-29'], ['2027-01-01', -1, '2026-12-31'],
+                              ['2026-03-29', -1, '2026-03-28'], ['2026-10-25', 1, '2026-10-26'], ['2026-12-31', 1, '2027-01-01']])
+    check(d.shiftKey(k, n) === want, `shiftKey(${k}, ${n}) is ${d.shiftKey(k, n)}, expected ${want}`);
+  const T = '2026-10-05', Y = '2026-10-04';
+  const cases = [[null, { last: T, n: 1 }, 'first daily'], [{ last: Y, n: 4 }, { last: T, n: 5 }, 'played yesterday: streak continues'],
+                 [{ last: T, n: 5 }, { last: T, n: 5 }, 'played today already: unchanged'], [{ last: '2026-10-02', n: 9 }, { last: T, n: 1 }, 'missed a day: starts again']];
+  for (const [prev, want, label] of cases) check(JSON.stringify(d.streakAfterPlaying(prev, T)) === JSON.stringify(want), `streak, ${label}: ${JSON.stringify(d.streakAfterPlaying(prev, T))}`);
+  check(d.streakNow({ last: T, n: 3 }, T) === 3 && d.streakNow({ last: Y, n: 3 }, T) === 3 && d.streakNow({ last: '2026-10-03', n: 3 }, T) === 0 && d.streakNow(null, T) === 0,
+    'shown streak: kept through yesterday, 0 once a day is missed');
+  // a real daily start on top of a stored streak from yesterday
+  d.store['ctl.streak'] = JSON.stringify({ last: Y, n: 4 }); d.dailyStart();
+  check(JSON.stringify(d.streakLoad()) === JSON.stringify({ last: T, n: 5 }), `starting today's daily extends the streak: ${d.store['ctl.streak']}`);
+  // share text: one square per ball in order, the rank line only when known, the link, nothing about the balls
+  const r = { n: 6, results: [true, true, false, ...Array(14).fill(true), false, true] };   // 19 played (17 correct), the 20th missing
+  const lines = d.shareText(r, 'Pro', 17, { rank: 7, total: 31 }, 'https://calltheline.site/').split('\n');
+  const squares = [...lines[0].split(' · ').pop()];
+  check(lines[0].startsWith('Call the Line #6 · Pro · 17/20 · ') && squares.length === 20 && squares.filter(c => c === '🟩').length === 17
+        && squares[2] === '🟥' && squares[17] === '🟥' && squares[19] === '🟥', `share line: ${lines[0]}`);
+  check(lines[1] === '7th of 31 today' && lines[2] === 'https://calltheline.site/' && lines.length === 3, `share rank and link lines: ${JSON.stringify(lines.slice(1))}`);
+  check(d.shareText(r, 'Pro', 17, null, 'u').split('\n').length === 2, 'no rank line when the rank is unknown');
 }
 
 // ---------- brand: the header logo is src/brand/logo.svg, inlined ----------
