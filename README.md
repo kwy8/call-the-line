@@ -90,11 +90,15 @@ The game has one ad interface (`Ads` in `src/game.html`) with a provider per pla
 | Where | Provider | Rewarded ("one more overrule") | Interstitial (between tournaments) |
 |---|---|---|---|
 | iOS / Android apps | AdMob via `@capacitor-community/admob` | yes | yes |
-| Game portals (CrazyGames) | portal SDK, loaded by the portal | yes | yes |
+| CrazyGames | CrazyGames HTML5 SDK v3, loaded by the game when it runs on a `crazygames.com` host | yes | yes (midgame) |
 | Your own site / the artifact | none, ads are skipped | – | – |
 | Testing | open the page with `#adsim` | simulated | simulated |
 
 The AdMob unit IDs in `src/game.html` are Google's public **test** units. Before release, create an AdMob account, add both apps, create a rewarded and an interstitial unit per platform, and paste the IDs into `UNITS`. Add your AdMob app IDs to `Info.plist` (`GADApplicationIdentifier`) and `AndroidManifest.xml` (`com.google.android.gms.ads.APPLICATION_ID`) as the plugin's README describes. EU consent is requested through Google's UMP at first ad; keep a privacy policy URL ready for both stores.
+
+### CrazyGames build
+
+`npm run build:crazygames` builds `www/` and zips it to `dist/call-the-line-crazygames.zip` with `index.html` at the root; upload that zip. On a `crazygames.com` host (`PORTAL` in `src/game.html`) the game loads the SDK, reports `gameplayStart` when a ball is served and `gameplayStop` when a run or daily ends, on Home and during an ad, calls `happytime` on promotion, champion and a new badge, and hides the Copy score/result buttons and the footer links. The Worker's `ALLOWED_ORIGIN` includes `https://www.crazygames.com` and `https://*.game-files.crazygames.com` (the game frame) so the daily leaderboard works there.
 
 ## Tuning
 

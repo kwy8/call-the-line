@@ -7,6 +7,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs && npx --yes serve www",
+    "build:crazygames": "node scripts/build.mjs && mkdir -p dist && rm -f dist/call-the-line-crazygames.zip && cd www && zip -qr -X ../dist/call-the-line-crazygames.zip . -x '.*' '*/.*' && cd .. && unzip -l dist/call-the-line-crazygames.zip",
     "check": "node scripts/check.mjs && node scripts/check-worker.mjs",
     "cap:add": "npx cap add ios && npx cap add android",
     "cap:sync": "npm run build && npx cap sync",

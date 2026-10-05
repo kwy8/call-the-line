@@ -145,9 +145,12 @@ async function weekBoard(kv, cache, url, day, now) {
 
 // CORS: ALLOWED_ORIGIN is a comma-separated list of origins (or "*"). A request whose Origin is on the list gets that
 // origin echoed back; any other origin, or no Origin at all, gets no CORS headers, so browsers refuse the response.
+// An entry like https://*.game-files.crazygames.com matches exactly one subdomain label in place of the *.
 export function corsHeaders(allowed, origin) {
   const list = String(allowed || '').split(',').map(o => o.trim()).filter(Boolean);
-  if (!origin || !(list.includes('*') || list.includes(origin))) return {};
+  const matches = o => o === origin || (o.includes('*.') &&
+    new RegExp('^' + o.split('*').map(p => p.replace(/[.+?^${}()|[\]\\/]/g, '\\$&')).join('[a-z0-9-]+') + '$').test(origin));
+  if (!origin || !(list.includes('*') || list.some(matches))) return {};
   return { 'Access-Control-Allow-Origin': list.includes('*') ? '*' : origin, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
            'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400' };
 }

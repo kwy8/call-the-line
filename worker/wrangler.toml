@@ -12,8 +12,9 @@ routes = [
 [vars]
 # Comma-separated origins browsers may call the API from; the Worker echoes back the matching one, and any other
 # origin gets no CORS headers. Here: the site, its www name, the GitHub Pages copy, the Capacitor apps (iOS uses
-# capacitor://localhost, Android https://localhost) and the local dev server.
-ALLOWED_ORIGIN = "https://calltheline.site,https://www.calltheline.site,https://kwy8.github.io,capacitor://localhost,https://localhost,http://localhost:3000"
+# capacitor://localhost, Android https://localhost), the local dev server, and CrazyGames: the portal page and the
+# game frame, which runs on a per-game subdomain such as https://call-the-line.game-files.crazygames.com.
+ALLOWED_ORIGIN = "https://calltheline.site,https://www.calltheline.site,https://kwy8.github.io,capacitor://localhost,https://localhost,http://localhost:3000,https://www.crazygames.com,https://*.game-files.crazygames.com"
 
 [[kv_namespaces]]
 binding = "LEADERBOARD"

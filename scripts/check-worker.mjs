@@ -201,15 +201,17 @@ for (const bad of ['2026-13-01', '2026-02-30', 'yesterday']) { r = await call('G
 r = await call('GET', `/weekly/top?day=${DAY}&id=nope`); check(r.status === 400, `weekly with a bad id: ${r.status}`);
 
 // ---------- CORS: echo back an allowed origin, nothing for any other ----------
-const ALLOWED = ['https://calltheline.site', 'https://www.calltheline.site', 'https://kwy8.github.io', 'capacitor://localhost', 'https://localhost', 'http://localhost:3000'];
-env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: ALLOWED.join(', ') };   // spaces after commas are tolerated
-for (const o of ALLOWED) {
+const ALLOWED = ['https://calltheline.site', 'https://www.calltheline.site', 'https://kwy8.github.io', 'capacitor://localhost', 'https://localhost', 'http://localhost:3000', 'https://www.crazygames.com'];
+env = { LEADERBOARD: memoryKV(), ALLOWED_ORIGIN: [...ALLOWED, 'https://*.game-files.crazygames.com'].join(', ') };   // spaces after commas are tolerated
+for (const o of [...ALLOWED, 'https://call-the-line.game-files.crazygames.com', 'https://cubes-2048-io.game-files.crazygames.com']) {
   r = await call('OPTIONS', '/daily/score', undefined, { origin: o });
   check(r.status === 204 && r.headers.get('Access-Control-Allow-Origin') === o && /POST/.test(r.headers.get('Access-Control-Allow-Methods') || ''), `preflight from ${o}: ${r.headers.get('Access-Control-Allow-Origin')}`);
   r = await call('GET', `/daily/top?day=${DAY}`, undefined, { origin: o });
   check(r.headers.get('Access-Control-Allow-Origin') === o, `GET from ${o}: ${r.headers.get('Access-Control-Allow-Origin')}`);
 }
-for (const o of ['https://evil.example', 'https://calltheline.site.evil.example', 'http://calltheline.site', 'https://kwy8.github.io.evil.example', 'http://localhost:8080', 'null', undefined]) {
+for (const o of ['https://evil.example', 'https://calltheline.site.evil.example', 'http://calltheline.site', 'https://kwy8.github.io.evil.example', 'http://localhost:8080', 'null', undefined,
+                 'https://game-files.crazygames.com', 'https://a.b.game-files.crazygames.com', 'https://x.game-files.crazygames.com.evil.example',
+                 'https://evilgame-files.crazygames.com', 'http://x.game-files.crazygames.com', 'https://crazygames.com']) {
   for (const [m, p] of [['OPTIONS', '/daily/score'], ['GET', `/daily/top?day=${DAY}`], ['POST', '/daily/score']]) {
     r = await call(m, p, m === 'POST' ? { day: DAY, id: id(500), name: 'x', score: 100, correct: 1, avgMs: 500 } : undefined, { origin: o });
     const leaked = [...r.headers.keys()].filter(k => k.startsWith('access-control-'));

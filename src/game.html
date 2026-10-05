@@ -220,7 +220,7 @@ footer .legal a{color:inherit;text-decoration:underline;display:inline-block;min
 
   <footer>
     <span id="homeWrap" hidden><button id="home" type="button">Home</button></span>
-    <span class="legal"><a href="/privacy.html">Privacy</a> · <a href="/privacy.html#impressum">Contact</a> · © 2026 Call the Line</span>
+    <span class="legal" id="legal"><a href="/privacy.html">Privacy</a> · <a href="/privacy.html#impressum">Contact</a> · © 2026 Call the Line</span>
   </footer>
 </div>
 
@@ -229,6 +229,8 @@ footer .legal a{color:inherit;text-decoration:underline;display:inline-block;min
 'use strict';
 // Daily leaderboard API: the Cloudflare Worker in worker/. The game is fully playable when it can't be reached.
 const API_BASE = 'https://api.calltheline.site';
+// Running inside CrazyGames (the portal page or its game-files frame): load their SDK, report gameplay, no outbound links.
+const PORTAL = /(^|\.)crazygames\.com$/.test(location.hostname || '');
 
 // ---------- Sport: everything tennis-specific, in one place ----------
 // Court in metres: x runs across the court, y along it from the outer edge of the near baseline (y = 0); the right
@@ -369,7 +371,7 @@ function emblem(id, size){
   return `<svg viewBox="0 0 56 56" width="${size}" height="${size}" aria-hidden="true"><circle cx="28" cy="28" r="27" fill="var(--navy)"/><circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="1.5"/>${art}</svg>`;
 }
 function saveStats(){ try{ localStorage.setItem('ctl.stats', JSON.stringify(ST)); }catch(e){} }
-function updateStats(fn){ fn(ST); for(const b of BADGES) if(!ST.badges.includes(b.id) && b.got(ST)){ ST.badges.push(b.id); badgeToast(b); } saveStats(); }
+function updateStats(fn){ fn(ST); for(const b of BADGES) if(!ST.badges.includes(b.id) && b.got(ST)){ ST.badges.push(b.id); badgeToast(b); CG.happy(); } saveStats(); }
 try{ S.best=+localStorage.getItem('ctl.best')||0; S.bestTier=+localStorage.getItem('ctl.tier')||0; S.muted=localStorage.getItem('ctl.mute')==='1'; }catch(e){}
 
 const $ = id=>document.getElementById(id);
@@ -638,6 +640,7 @@ function startPoint(){
   const T=TIERS[S.tier], practice=S.mode==='practice';
   $('tProg').textContent = practice ? `${T.surf} · Practice · ball ${S.call}` : `${T.surf} · ${cap(S.match)} · call ${S.call} of ${S.mode==='daily'?DAILY_N:T.calls}`;
   newBall(); callWindow=practice ? Infinity : T.win; resolved=false;   // practice: no timer
+  CG.start();
   $('timerTrack').style.visibility = practice ? 'hidden' : '';
   $('timer').style.width='100%'; setButtons(false); hideOverlay(); toast('');
   clearTimeout(quipTimer); $('quip').hidden=true;
@@ -870,6 +873,25 @@ function drawEagle(c){
 }
 
 
+// ---------- CrazyGames SDK v3 (PORTAL only) ----------
+// gameplayStart when a ball is served, gameplayStop when a run or daily ends, on Home and while an ad plays;
+// happytime for promotion, champion and a new badge, at most once every few seconds.
+const CG = (function(){
+  let sdk=null, playing=false, lastHappy=-1e9;
+  const ready = !PORTAL ? Promise.resolve(null) : new Promise(res=>{
+    const s=document.createElement('script'); s.src='https://sdk.crazygames.com/crazygames-sdk-v3.js';
+    s.onload=async()=>{ try{ await window.CrazyGames.SDK.init(); sdk=window.CrazyGames.SDK; }catch(e){ console.warn('CrazyGames SDK init failed', e); } res(sdk); };
+    s.onerror=()=>res(null); document.head.appendChild(s);
+  });
+  const call=fn=>{ try{ if(sdk) fn(sdk); }catch(e){ console.warn('CrazyGames SDK', e); } };
+  return {
+    ready, get ad(){ return sdk?.ad || null; },
+    start(){ if(!sdk || playing) return; playing=true; call(s=>s.game.gameplayStart()); },
+    stop(){ if(!playing) return; playing=false; call(s=>s.game.gameplayStop()); },
+    happy(){ const t=performance.now(); if(t-lastHappy<3000) return; lastHappy=t; call(s=>s.game.happytime()); },
+  };
+})();
+
 // ---------- Ads: one interface, a provider per platform ----------
 // rewarded()  -> resolves true when the viewer earned the reward (used for "one more overrule")
 // interstitial() -> resolves when the ad is closed (used between tournaments)
@@ -882,7 +904,7 @@ const Ads = (function(){
     ios:    { rewarded:'ca-app-pub-3940256099942544/1712485313', interstitial:'ca-app-pub-3940256099942544/4411468910' },
   };
   const admob = ()=> window.Capacitor?.Plugins?.AdMob || null;
-  const crazy = ()=> window.CrazyGames?.SDK?.ad || null;
+  const crazy = ()=> CG.ad;
   const sim   = ()=> location.hash==='#adsim';
   let ready=false;
   async function init(){
@@ -908,7 +930,7 @@ const Ads = (function(){
           A.showRewardVideoAd().catch(()=>{ l1.remove(); l2.remove(); res(false); });
         });
       }
-      if(p==='crazygames') return await new Promise(res=>crazy().requestAd('rewarded',{ adFinished:()=>res(true), adError:()=>res(false), adStarted:()=>{} }));
+      if(p==='crazygames') return await crazyAd('rewarded');
       if(p==='sim') return await simAd('Rewarded ad (simulated)', 4);
     }catch(e){ console.warn('rewarded ad failed', e); }
     return false;
@@ -917,9 +939,13 @@ const Ads = (function(){
     const p=provider();
     try{
       if(p==='admob'){ const A=admob(); await init(); await A.prepareInterstitial({ adId:unit('interstitial') }); await A.showInterstitial(); return; }
-      if(p==='crazygames'){ await new Promise(res=>crazy().requestAd('midgame',{ adFinished:res, adError:res, adStarted:()=>{} })); return; }
+      if(p==='crazygames'){ await crazyAd('midgame'); return; }
       if(p==='sim'){ await simAd('Interstitial ad (simulated)', 2); }
     }catch(e){ console.warn('interstitial failed', e); }
+  }
+  // SDK v3: ad.requestAd('rewarded' | 'midgame', callbacks); resolves true when the ad played to the end
+  function crazyAd(kind){
+    return new Promise(res=>crazy().requestAd(kind,{ adStarted:()=>CG.stop(), adFinished:()=>res(true), adError:e=>{ console.warn(kind+' ad error', e); res(false); } }));
   }
   function simAd(label, secs){
     return new Promise(res=>{
@@ -1056,7 +1082,7 @@ function endTournament(){
   updateStats(st=>{ if(!S.rescuedHere){ st.tourneys++; if(S.over===0) st.perfect++; } if(S.tier>=TIERS.length-1) st.champion++; });  // a rescued tournament doesn't count as completed
   if(S.tier>=TIERS.length-1){ win(); return; }
   const bonus=(3-S.over)*250; S.score+=bonus; hud();
-  const T=TIERS[S.tier]; S.tier++;
+  const T=TIERS[S.tier]; S.tier++; CG.happy();
   card(`
     <span class="tag good">Promoted</span>
     <h2 class="good">${T.name}: survived</h2>
@@ -1067,14 +1093,14 @@ function endTournament(){
   $('go').onclick=async()=>{ const run=S.run; $('go').disabled=true; await Ads.interstitial(); if(run===S.run) startTournament(); };
 }
 function gameOver(){
-  S.phase='end';
+  S.phase='end'; CG.stop();
   const canRescue = Ads.available() && !S.rescued;
   card(`
     <span class="tag bad">Rule 3</span>
     <h2 class="bad">Three overrules. The cameras take over.</h2>
     <div class="chips"><span class="chip"><b>${S.score.toLocaleString()}</b> pts</span><span class="chip">call <b>${S.call}</b> of ${TIERS[S.tier].name}</span></div>
     ${canRescue?`<div class="row"><button class="btn" id="rescue">Watch an ad · one more overrule</button></div><span class="hint">Once per run</span>`:''}
-    <div class="row"><button class="btn ${canRescue?'ghost':''}" id="again">Try again</button><button class="btn ghost" id="share">Copy score</button></div>
+    <div class="row"><button class="btn ${canRescue?'ghost':''}" id="again">Try again</button>${PORTAL?'':'<button class="btn ghost" id="share">Copy score</button>'}</div>
     <span class="hint" id="shareMsg"></span>
   `);
   if(canRescue) $('rescue').onclick=async()=>{
@@ -1090,19 +1116,19 @@ function gameOver(){
   wireEnd();
 }
 function win(){
-  S.phase='end'; saveBest();
+  S.phase='end'; saveBest(); CG.stop(); CG.happy();
   card(`
     <span class="tag good">Champion</span>
     <h2 class="good">Eagle-Eye has nothing on you.</h2>
     <div class="chips"><span class="chip"><b>${S.score.toLocaleString()}</b> pts</span><span class="chip">all <b>${TIERS.length}</b> tournaments</span></div>
-    <div class="row"><button class="btn" id="again">Play again</button><button class="btn ghost" id="share">Copy score</button></div>
+    <div class="row"><button class="btn" id="again">Play again</button>${PORTAL?'':'<button class="btn ghost" id="share">Copy score</button>'}</div>
     <span class="hint" id="shareMsg"></span>
   `);
   wireEnd();
 }
 function wireEnd(){
   $('again').onclick=()=>{ S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); };
-  $('share').onclick=()=>{
+  if($('share')) $('share').onclick=()=>{
     copyText(`${S.score.toLocaleString()} pts as a tennis line judge in Call the Line, reached ${TIERS[S.tier].name}. You think it's easy? ${location.href}`);
   };
 }
@@ -1335,7 +1361,7 @@ async function showBoard(r, correct){
   }catch(e){ if(el()) el().innerHTML=`<span class="hint">${LB_DOWN}</span>`; }
 }
 function dailyResults(){
-  S.phase='end'; R=Math.random;
+  S.phase='end'; R=Math.random; CG.stop();
   const r=dailyLoad()||S.daily, correct=r.results.filter(Boolean).length;
   const acc=Math.round(100*correct/DAILY_N), played=r.results.length, level=DAILY_LEVELS[r.level ?? dailyLevel(r.key)].name;
   const dots=Array.from({length:DAILY_N},(_,i)=>`<i class="${i<played?(r.results[i]?'y':'n'):''}"></i>`).join('');
@@ -1346,12 +1372,12 @@ function dailyResults(){
     <div class="dots" aria-label="Call by call results">${dots}</div>
     ${played<DAILY_N?`<span class="hint">Stopped after ${played} of ${DAILY_N}. The rest count as missed.</span>`:''}
     <div class="board" id="board"><span class="hint">Checking today's leaderboard…</span></div>
-    <div class="row"><button class="btn" id="share">Copy result</button><button class="btn ghost" id="back">Back</button></div>
+    <div class="row">${PORTAL?'<button class="btn" id="back">Back</button>':'<button class="btn" id="share">Copy result</button><button class="btn ghost" id="back">Back</button>'}</div>
     <span class="hint" id="shareMsg">Next daily in ${untilMidnight()}</span>
     <span class="hint installHint" hidden></span>
   `);
   installHint();
-  $('share').onclick=()=> copyText(shareText(r, level, correct, todayRank && todayRank.key===r.key ? todayRank : null, location.href.split('#')[0]));
+  if($('share')) $('share').onclick=()=> copyText(shareText(r, level, correct, todayRank && todayRank.key===r.key ? todayRank : null, location.href.split('#')[0]));
   $('back').onclick=dailyExit;
   showBoard(r, correct);
 }
@@ -1359,7 +1385,7 @@ function dailyExit(){ goHome(); }
 // Back to the start screen from anywhere: stop the ball, drop any pending review, reset the run.
 // A career run's score still counts towards the best; a daily attempt stays used.
 function goHome(){
-  S.run++; cancelAnimationFrame(raf); clearTimeout(eagleTimer); cancelPock(); stopReplay(); resolved=true;
+  S.run++; cancelAnimationFrame(raf); clearTimeout(eagleTimer); cancelPock(); stopReplay(); resolved=true; CG.stop();
   if(S.mode==='career' && S.phase!=='end') saveBest();
   S.mode='career'; S.seat='sideline-right'; S.match='singles'; S.cond='day'; S.tier=0; S.call=0; S.over=0; S.score=0; S.streak=0; S.rescued=false; R=Math.random;
   toast(''); $('quip').hidden=true; $('timer').style.width='0%'; $('timerTrack').style.visibility=''; $('practicePanel').hidden=true; setButtons(false);
@@ -1428,7 +1454,7 @@ renderMute();
 function sportText(){ // the call buttons' words, from SPORT
   for(const [id,word] of [['btnIn',CALL.in],['btnOut',CALL.out]]){ const t=$(id).firstChild; if(t) t.nodeValue=word; }
 }
-function start(){ booted=true; sportText(); hud(); setPitch(6); newBall(); ball.vis=false; drawScene(0); intro(); }
+function start(){ booted=true; sportText(); if(PORTAL) $('legal').hidden=true; hud(); setPitch(6); newBall(); ball.vis=false; drawScene(0); intro(); }
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start();
 })();
 </script>
