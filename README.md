@@ -2,7 +2,7 @@
 
 *You think it's easy being a line judge?*
 
-A tennis line-judge reflex game. You sit at the end of the sideline at real eye height, the ball comes at you in true perspective, and you call it In or Out after the bounce. Three overrules from the electronic review and the cameras take your chair. Five tournaments, from a clay club open to a Grand Slam final on grass.
+A tennis line-judge reflex game. You sit at the end of the sideline at real eye height, the ball comes at you in true perspective, and you call it In or Out after the bounce. Three overrules from the electronic review and the cameras take your chair. Five tournaments, from a clay club open to the Lawn Classic final on grass, the last of the Majors.
 
 ## How it's built
 

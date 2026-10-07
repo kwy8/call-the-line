@@ -284,11 +284,11 @@ const G = 9.81;
 
 // ---------- Tournament ladder ----------
 const TIERS = [
-  {name:'Riverside Club Open',  short:'Club',   surf:SURF.clay,       calls:10, court:'#C6673C', out:'#B65C34', line:'#F3EDE4', stands:'#CFC7BB', speed:[20,25], near:[2.5,5.5],  margin:[0.02,0.12],  win:2.0,  angle:0.05},
-  {name:'Harbour Challenger',   short:'Chall.', surf:SURF.greenHard, calls:10, court:'#4C8A55', out:'#7C9F60', line:'#FFFFFF', stands:'#C9D0C4', speed:[24,29], near:[3.0,7.0],  margin:[0.012,0.09], win:1.7,  angle:0.07},
-  {name:'Metro Open 250',       short:'250',    surf:SURF.blueHard,  calls:10, court:'#3E7CBB', out:'#4F8F5F', line:'#FFFFFF', stands:'#C4CDD6', speed:[28,34], near:[3.5,8.5],  margin:[0.008,0.06], win:1.45, angle:0.09},
-  {name:'Capital Masters 1000', short:'1000',   surf:SURF.blueHard,  calls:12, court:'#2E67A4', out:'#2B4F77', line:'#FFFFFF', stands:'#BEC7D1', speed:[32,40], near:[4.0,10.0], margin:[0.005,0.04], win:1.25, angle:0.11},
-  {name:'The Grand Slam Final', short:'Slam',   surf:SURF.grass,      calls:12, court:'#4E8C3E', out:'#5D9C4A', line:'#FFFFFF', stands:'#C8CFC2', speed:[36,44], near:[4.5,11.0], margin:[0.002,0.03], win:1.05, angle:0.13},
+  {name:'Riverside Club Open',    short:'Club',  surf:SURF.clay,       calls:10, court:'#C6673C', out:'#B65C34', line:'#F3EDE4', stands:'#CFC7BB', speed:[20,25], near:[2.5,5.5],  margin:[0.02,0.12],  win:2.0,  angle:0.05},
+  {name:'Harbour Challenger',     short:'Chall.', surf:SURF.greenHard, calls:10, court:'#4C8A55', out:'#7C9F60', line:'#FFFFFF', stands:'#C9D0C4', speed:[24,29], near:[3.0,7.0],  margin:[0.012,0.09], win:1.7,  angle:0.07},
+  {name:'Big Apple Open',         short:'Open',  surf:SURF.blueHard,  calls:10, court:'#3E7CBB', out:'#4F8F5F', line:'#FFFFFF', stands:'#C4CDD6', speed:[28,34], near:[3.5,8.5],  margin:[0.008,0.06], win:1.45, angle:0.09},
+  {name:'Kangaroo Open',          short:'Major', surf:SURF.blueHard,  calls:12, court:'#2E67A4', out:'#2B4F77', line:'#FFFFFF', stands:'#BEC7D1', speed:[32,40], near:[4.0,10.0], margin:[0.005,0.04], win:1.25, angle:0.11},
+  {name:'The Lawn Classic Final', short:'Final', surf:SURF.grass,      calls:12, court:'#4E8C3E', out:'#5D9C4A', line:'#FFFFFF', stands:'#C8CFC2', speed:[36,44], near:[4.5,11.0], margin:[0.002,0.03], win:1.05, angle:0.13},
 ];
 // Daily challenge: DAILY_N balls seeded by the local calendar date, all at one player level (ball speeds, margins and
 // call window of one tournament), which the date also picks.
@@ -347,7 +347,7 @@ const BADGES = [
   { id:'ten',     name:'Ten in a row',        tip:'10 correct calls in a row',                 got:s=>s.bestStreak>=10 },
   { id:'five',    name:'Called a 5 mm ball',  tip:'A correct call within 5 mm of the line',    got:s=>s.closest!==null && Math.round(s.closest)<=5 },
   { id:'perfect', name:'Perfect tournament',  tip:'Finish a tournament with no overrules',     got:s=>s.perfect>0 },
-  { id:'slam',    name:'Grand Slam champion', tip:'Survive all five tournaments',              got:s=>s.champion>0 },
+  { id:'slam',    name:'Majors champion',     tip:'Survive all five tournaments',              got:s=>s.champion>0 },
   { id:'dailies', name:'Seven dailies',       tip:'Play seven daily challenges',               got:s=>s.dailies>=7 },
 ];
 // Badge emblems: a pictogram on a round navy medallion, drawn at any size

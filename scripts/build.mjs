@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync, mkdirSync, cpSync, rmSync } from 'node:fs';
 const SITE = 'https://calltheline.site/';
 const TITLE = 'Call the Line';
-const DESC = "You think it's easy being a line judge? Call every ball in or out before Eagle-Eye overrules you. Five tournaments from club open to Grand Slam.";
+const DESC = "You think it's easy being a line judge? Call every ball in or out before Eagle-Eye overrules you. Five tournaments from club open to the Majors.";
 const body = readFileSync('src/game.html', 'utf8');
 const doc = `<!doctype html>
 <html lang="en">
