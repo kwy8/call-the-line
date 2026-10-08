@@ -8,6 +8,9 @@
 //   - balls in the doubles alley are out in a singles match and in in a doubles match (and both cases occur)
 //   - a baseline or service-line ball lands inside the judged length without touching a sideline
 //   - the landing spot and the judged line are on screen
+//   - the ball comes from a plausible hitter: its flight, traced back with the game's own stepBall(), starts inside the
+//     groundstroke or serve zone (a serve from the half diagonally opposite its box), crosses the net between the posts
+//     with the required height, and travels from the far half towards the near half
 // that the leaderboard Worker's score bounds match the game's real scoring, that the ghost replay and practice mode
 // behave (see that section), and that the daily challenge gives identical balls, seat, match type and level for the same date, plays every ball
 // at its level's tier, and still produces the frozen DAILY_FIXTURE for 2026-10-01 below. Exits 1 on any failure.
@@ -22,11 +25,11 @@ const BALLS_PER_SEAT_AND_TIER = 300;
 const DAILY_FIXTURE = {
   date: '2026-10-01', level: 'National', seat: 'baseline-far', match: 'singles', cond: 'night',
   balls: [
-    { tier: 2, xL: -5.263177, yL: -0.170366, vx: -1.763319, vy: -31.415598, m: 0.115415,  isIn: false },
-    { tier: 2, xL: -5.799764, yL: -0.067098, vx: 2.692516,  vy: -32.996784, m: 0.012202,  isIn: false },
-    { tier: 2, xL: -4.41306,  yL: -0.086916, vx: 2.396158,  vy: -33.006761, m: 0.031999,  isIn: false },
-    { tier: 2, xL: -3.869069, yL: 0.110568,  vx: -1.886805, vy: -30.084494, m: -0.165506, isIn: true },
-    { tier: 2, xL: -5.035255, yL: -0.228087, vx: 2.570415,  vy: -30.205036, m: 0.1732,    isIn: false },
+    { tier: 2, xL: -2.83192,  yL: -0.027389, vx: 3.806274,  vy: -31.415598, m: -0.027383, isIn: true },
+    { tier: 2, xL: -5.415008, yL: -0.025449, vx: -6.996254, vy: -33.066593, m: -0.028873, isIn: true },
+    { tier: 2, xL: -3.869069, yL: -0.001414, vx: 0.427082,  vy: -30.966341, m: -0.053583, isIn: true },
+    { tier: 2, xL: -4.457245, yL: -0.100722, vx: 6.202455,  vy: -29.101548, m: 0.04641,   isIn: false },
+    { tier: 2, xL: -3.100355, yL: -0.110789, vx: -6.022574, vy: -33.097158, m: 0.056295,  isIn: false },
   ],
 };
 const html = readFileSync(new URL('../src/game.html', import.meta.url), 'utf8');
@@ -36,7 +39,7 @@ const END = /\}\)\(\);\s*$/;  // the game script is one IIFE; expose its interna
 if (!END.test(match[1])) fail('src/game.html script no longer ends with "})();"');
 const src = match[1].replace(END, `window.__ctl={ S, newBall, startPoint, resolve, dailyStart, proj, cam, SEATS,
   get ball(){ return ball; }, get W(){ return W; }, get H(){ return H; },
-  LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, DAILY_LEVELS, TIERS, CONDITIONS, pickCond,
+  LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, DAILY_LEVELS, TIERS, CONDITIONS, pickCond, stepBall,
   ST, nextStep, practiceStart, finishReplay, landDistance, pickSeat, SEAT_CHOICES,
   shiftKey, streakAfterPlaying, streakNow, streakLoad, shareText, get replay(){ return replay; }, get PR(){ return PR; } };})();`);
 
@@ -78,6 +81,13 @@ const MATCHES = ['singles', 'doubles'];
 // Expected mark length, worked out here rather than read from the game: damp grass makes the ball skid 20% further.
 const DAMP_SKID = 1.2, expectedMarkL = cond => MARK_L * (cond === 'damp' ? DAMP_SKID : 1);
 const condOk = (cond, tier) => cond !== 'damp' || TIERS[tier].surf === 'Grass';  // damp grass only exists on grass
+// The hitter's zones and the net rule, written out here rather than read from the game. Court: net at y = 11.885, far
+// baseline at 23.77, centre line at x = -4.115. x: either side of the centre line; z: contact height.
+const NET_Y = 11.885, FAR_BASE = 23.77, CENTRE = -4.115, EPS = 1e-6;
+const ZONES = { ground: { x: 6.0, y: [NET_Y + 3, FAR_BASE + 2.5], z: [0.6, 1.5] }, serve: { x: 4.0, y: [FAR_BASE + 0.3, FAR_BASE + 1.5], z: [2.4, 3.0] } };
+const POSTS = 6.4, netNeed = x => 0.95 + 0.15 * Math.min(1, Math.abs(x - CENTRE) / POSTS);
+const hitFail = { zone: 0, net: 0, posts: 0, direction: 0, any: 0 };
+let minClear = Infinity;
 const alley = { singles: 0, doubles: 0 };  // side-seat balls whose mark lies in the doubles alley
 let balls = 0, dampBalls = 0;
 for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (const id of Object.keys(SEATS)) {
@@ -116,6 +126,21 @@ for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (co
       check(p.d > 0 && p.sx >= 20 && p.sx <= g.W - 20 && p.sy >= 20 && p.sy <= g.H - 20, `${tag}: landing spot off screen (${p.sx.toFixed(0)}, ${p.sy.toFixed(0)})`);
       const l = V.axis === 'x' ? g.proj(V.line, b.yL, 0) : g.proj(b.xL, V.line, 0);
       check(l.d > 0 && l.sx >= 0 && l.sx <= g.W && l.sy >= 0 && l.sy <= g.H - 16, `${tag}: judged line off screen (${l.sx.toFixed(0)}, ${l.sy.toFixed(0)})`);
+      // the hitter: where the drawn flight starts (the origin; a ball without one starts where it comes into view) and
+      // where it crosses the net plane
+      const serve = SEATS[id].view === 'svc', Z = serve ? ZONES.serve : ZONES.ground, sp = -b.vy;
+      const at = t => { g.stepBall(t); return { x: g.ball.x, y: g.ball.y, z: g.ball.z }; };
+      const o = at(b.yo !== undefined ? -(b.yo - b.yL) / sp : b.t0), n = at(-(NET_Y - b.yL) / sp);
+      const inZone = Math.abs(o.x - CENTRE) <= Z.x + EPS && o.y >= Z.y[0] - EPS && o.y <= Z.y[1] + EPS && o.z >= Z.z[0] - EPS && o.z <= Z.z[1] + EPS
+        && (!serve || Math.sign(o.x - CENTRE) === -Math.sign(b.xL - CENTRE));
+      const posts = Math.abs(n.x - CENTRE) <= POSTS + EPS, overNet = n.z >= netNeed(n.x) - EPS, dir = b.vy < 0 && o.y > NET_Y && b.yL < NET_Y;
+      if (!inZone) hitFail.zone++; if (!posts) hitFail.posts++; if (!overNet) hitFail.net++; if (!dir) hitFail.direction++;
+      if (!inZone || !posts || !overNet || !dir) hitFail.any++;
+      minClear = Math.min(minClear, n.z - netNeed(n.x));
+      check(inZone, `${tag}: origin (${o.x.toFixed(2)}, ${o.y.toFixed(2)}, ${o.z.toFixed(2)}) outside the ${serve ? 'serve' : 'groundstroke'} zone`);
+      check(posts, `${tag}: crosses the net at x = ${n.x.toFixed(2)}, outside the posts`);
+      check(overNet, `${tag}: ${n.z.toFixed(3)} m over the net at x = ${n.x.toFixed(2)}, needs ${netNeed(n.x).toFixed(3)} m`);
+      check(dir, `${tag}: not travelling from the far half to the near half`);
     }
   }
 }
@@ -321,4 +346,4 @@ if (failures.length) {
   for (const f of failures) console.error('  ' + f);
   process.exit(1);
 }
-console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seat views (${Object.keys(g.SEAT_CHOICES).length} seats), 5 tiers, singles and doubles, ${Object.keys(CONDITIONS).length} conditions (${dampBalls} damp-grass balls with 20% longer marks; alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily (${DAILY_FIXTURE.level}) matches the frozen fixture`);
+console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seat views (${Object.keys(g.SEAT_CHOICES).length} seats), 5 tiers, singles and doubles, ${Object.keys(CONDITIONS).length} conditions (${dampBalls} damp-grass balls with 20% longer marks; alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); every ball from a plausible hitter (least net clearance ${(minClear * 1000).toFixed(1)} mm); daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily (${DAILY_FIXTURE.level}) matches the frozen fixture`);

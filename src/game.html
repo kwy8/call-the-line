@@ -247,8 +247,18 @@ const SPORT = {
   },
   net: { postHeight: 1.07, centreHeight: 0.914, tapeAtPost: 1.12, tapeAtCentre: 0.96, postTop: 1.14, postHalfWidth: 0.04,
          postOutside: 0.914, singlesStick: 0.95 },   // doubles posts 0.914 m outside the doubles lines; singles sticks at 0.95 m
-  ball: { radius: 0.0335, markLength: 0.11, markWidth: 0.072,
-          descent: 0.21, bounce: 0.55 },             // falling speed and rebound, as fractions of the ball's court speed
+  ball: { radius: 0.0335, markLength: 0.11, markWidth: 0.072, bounce: 0.55 },   // rebound speed, as a fraction of the falling speed
+  // Where the far player strikes the ball. x: metres either side of the centre line; y: from this far past the net to this
+  // far behind the far baseline; z: contact height; dip: downward pull in the air as a multiple of g (1 = no spin, more =
+  // topspin). A serve comes from the half diagonally opposite the service box it lands in. Every ball must clear the net
+  // (ball centre at least net.centre m high at the centre line, rising linearly to net.post at net.halfWidth, the posts)
+  // and cross it between the posts. tries: origins drawn per landing spot before the spot is moved deeper.
+  hitter: {
+    ground: { x: 6.0, pastNet: 3, behindBase: [-Infinity, 2.5], z: [0.6, 1.5], dip: [1, 2] },
+    serve:  { x: 4.0, pastNet: 3, behindBase: [0.3, 1.5],       z: [2.4, 3.0], dip: [1, 1.5] },
+    net: { centre: 0.95, post: 1.1, halfWidth: 6.4 },
+    tries: 50, deepest: 1.5,   // a landing spot moves no nearer the judge's end of the line than this (m)
+  },
   judge: { eye: 1.1, behind: 2.6, aim: 1.5 },        // eye height; distance behind the end of the line; aim past the landing spot
   // Views a judge can have. The court is symmetric, so a left-hand view is exactly the right-hand one in a mirror (flip),
   // and the far baseline seen from behind looks the same as the near one (far). Play always runs in the right/near
@@ -284,11 +294,11 @@ const G = 9.81;
 
 // ---------- Tournament ladder ----------
 const TIERS = [
-  {name:'Riverside Club Open',    short:'Club',  surf:SURF.clay,       calls:10, court:'#C6673C', out:'#B65C34', line:'#F3EDE4', stands:'#CFC7BB', speed:[20,25], near:[2.5,5.5],  margin:[0.02,0.12],  win:2.0,  angle:0.05},
-  {name:'Harbour Challenger',     short:'Chall.', surf:SURF.greenHard, calls:10, court:'#4C8A55', out:'#7C9F60', line:'#FFFFFF', stands:'#C9D0C4', speed:[24,29], near:[3.0,7.0],  margin:[0.012,0.09], win:1.7,  angle:0.07},
-  {name:'Big Apple Open',         short:'Open',  surf:SURF.blueHard,  calls:10, court:'#3E7CBB', out:'#4F8F5F', line:'#FFFFFF', stands:'#C4CDD6', speed:[28,34], near:[3.5,8.5],  margin:[0.008,0.06], win:1.45, angle:0.09},
-  {name:'Kangaroo Open',          short:'Major', surf:SURF.blueHard,  calls:12, court:'#2E67A4', out:'#2B4F77', line:'#FFFFFF', stands:'#BEC7D1', speed:[32,40], near:[4.0,10.0], margin:[0.005,0.04], win:1.25, angle:0.11},
-  {name:'The Lawn Classic Final', short:'Final', surf:SURF.grass,      calls:12, court:'#4E8C3E', out:'#5D9C4A', line:'#FFFFFF', stands:'#C8CFC2', speed:[36,44], near:[4.5,11.0], margin:[0.002,0.03], win:1.05, angle:0.13},
+  {name:'Riverside Club Open',    short:'Club',  surf:SURF.clay,       calls:10, court:'#C6673C', out:'#B65C34', line:'#F3EDE4', stands:'#CFC7BB', speed:[20,25], near:[2.5,5.5],  margin:[0.02,0.12],  win:2.0},
+  {name:'Harbour Challenger',     short:'Chall.', surf:SURF.greenHard, calls:10, court:'#4C8A55', out:'#7C9F60', line:'#FFFFFF', stands:'#C9D0C4', speed:[24,29], near:[3.0,7.0],  margin:[0.012,0.09], win:1.7},
+  {name:'Big Apple Open',         short:'Open',  surf:SURF.blueHard,  calls:10, court:'#3E7CBB', out:'#4F8F5F', line:'#FFFFFF', stands:'#C4CDD6', speed:[28,34], near:[3.5,8.5],  margin:[0.008,0.06], win:1.45},
+  {name:'Kangaroo Open',          short:'Major', surf:SURF.blueHard,  calls:12, court:'#2E67A4', out:'#2B4F77', line:'#FFFFFF', stands:'#BEC7D1', speed:[32,40], near:[4.0,10.0], margin:[0.005,0.04], win:1.25},
+  {name:'The Lawn Classic Final', short:'Final', surf:SURF.grass,      calls:12, court:'#4E8C3E', out:'#5D9C4A', line:'#FFFFFF', stands:'#C8CFC2', speed:[36,44], near:[4.5,11.0], margin:[0.002,0.03], win:1.05},
 ];
 // Daily challenge: DAILY_N balls seeded by the local calendar date, all at one player level (ball speeds, margins and
 // call window of one tournament), which the date also picks.
@@ -513,24 +523,60 @@ const rnd=(a,b)=>a+R()*(b-a);
 function newBall(){
   const T=TIERS[S.tier], seat=SEATS[S.seat], view=seat.view, V=seatGeom(view, S.match);
   cam.x=V.cam[0]; cam.y=V.cam[1]; cam.yaw=V.yaw; cam.flip=!!seat.flip;
-  // along the judged line, measured from the judge's end: down the sideline, or across the court along the
-  // baseline/service line (scaled to fit inside its judged length)
-  const vy=-rnd(T.speed[0],T.speed[1]), along = view==='side' ? rnd(T.near[0],T.near[1]) : V.end-0.7*V.len/SINGLES_W*rnd(T.near[0],T.near[1]);
-  const ang=rnd(T.angle*0.4,T.angle)*(R()<0.5?-1:1), vx=ang*Math.abs(vy);
-  const len=Math.hypot(vx,vy), ux=vx/len, uy=vy/len;
-  // half-extent of the elongated mark across the judged line
+  const v=rnd(T.speed[0],T.speed[1]), vy=-v;   // court speed, towards the judge's end
   const markL = MARK_L*(CONDITIONS[S.cond].skid||1);  // damp grass: the ball skids further, the mark is longer
-  const ext = V.axis==='x' ? Math.hypot(markL/2*ux, MARK_W/2*uy) : Math.hypot(markL/2*uy, MARK_W/2*ux);
   // margin between the mark's inner edge and the line's outer edge: negative = in, positive = out
   const m = R()<0.22 ? rnd(0.06,0.22)*(R()<0.5?-1:1) : rnd(T.margin[0],T.margin[1])*(R()<0.5?-1:1);
-  // the line's outer edge is V.line; out is x > V.line (sideline) or y < V.line (baseline, service line). In a singles
-  // match the doubles alley lies beyond the singles sideline, so a ball there is out
-  const xL = V.axis==='x' ? V.line+m+ext : along, yL = V.axis==='x' ? along : V.line-m-ext;
+  // Landing spot first, then a hitter who can reach it. along: distance along the judged line from the judge's end (down
+  // the sideline, or across the court along the baseline/service line, scaled to fit inside its judged length). If no
+  // plausible origin turns up for a spot (a fast ball can't dip into mid-court over the net), the spot moves deeper.
+  const H=SPORT.hitter, Z=view==='svc' ? H.serve : H.ground;
+  let along=rnd(T.near[0],T.near[1]), shot=null, best=null;
+  for(let spot=0; spot<40 && !shot; spot++){
+    if(spot) along=rnd(Math.min(H.deepest,along), along);
+    const at = view==='side' ? along : V.end-0.7*V.len/SINGLES_W*along;
+    for(let i=0; i<H.tries && !shot; i++){
+      const side = view==='svc' ? (at>CENTRE ? -1 : 1) : 0;   // serve: from the half diagonally opposite the box
+      const xo = CENTRE+(side ? side*rnd(0,Z.x) : rnd(-Z.x,Z.x)), zo=rnd(Z.z[0],Z.z[1]), dip=G*rnd(Z.dip[0],Z.dip[1]);
+      const yo = FAR_BASE+rnd(Math.max(Z.behindBase[0], NET_Y+Z.pastNet-FAR_BASE), Z.behindBase[1]);
+      const c = aimShot({ xo, yo, zo, dip }, V, at, m, markL, v);
+      if(c.ok) shot=c; else if(!best || c.clear>best.clear) best=c;
+    }
+  }
+  shot ||= best;   // never seen in scripts/check.mjs; keeps the game going if it ever happens
+  const { xL, yL, vx, ux, uy, ext, xo, yo, zo, dip, fall } = shot;
   setPitch(fwd(xL,yL)+V.aim);  // centre the view just past the landing spot on the line
-  const a=SPORT.ball.descent*Math.abs(vy), spawn=14;
-  ball={ xL, yL, vx, vy, a, b:SPORT.ball.bounce*a, t0:-spawn/Math.abs(vy), x:0,y:0,z:0, vis:true, ux, uy, ext, markL, cond:S.cond, seat:S.seat, view, geo:V, match:S.match, flip:!!seat.flip, m, isIn:m<0, squash:1 };
+  const spawn=Math.min(14, yo-yL);   // the ball comes into view at most 14 m before it lands
+  ball={ xL, yL, vx, vy, a:fall, dip, b:SPORT.ball.bounce*fall, t0:-spawn/v, xo, yo, zo, x:0,y:0,z:0, vis:true, ux, uy, ext, markL, cond:S.cond, seat:S.seat, view, geo:V, match:S.match, flip:!!seat.flip, m, isIn:m<0, squash:1 };
   trail=[];
 }
+// The shot from origin o = { xo, yo, zo, dip } at court speed v to the spot `at` along the judged line, `m` from it.
+// The landing point depends on the mark's half-extent across the line, which depends on the direction of travel, which
+// depends on the landing point: a few rounds settle it to well under a micron. In the air the ball keeps its court
+// velocity and falls on a parabola with downward acceleration dip, from zo at the origin to 0 at the bounce; fall is its
+// falling speed at the bounce. ok: it clears the net by the hitter's rule, between the posts; clear: height to spare (m).
+function aimShot(o, V, at, m, markL, v){
+  let ux=0, uy=-1, ext=0, xL=0, yL=0;
+  for(let k=0;k<4;k++){
+    // half-extent of the elongated mark across the judged line
+    ext = V.axis==='x' ? Math.hypot(markL/2*ux, MARK_W/2*uy) : Math.hypot(markL/2*uy, MARK_W/2*ux);
+    // the line's outer edge is V.line; out is x > V.line (sideline) or y < V.line (baseline, service line). In a singles
+    // match the doubles alley lies beyond the singles sideline, so a ball there is out
+    xL = V.axis==='x' ? V.line+m+ext : at; yL = V.axis==='x' ? at : V.line-m-ext;
+    const len=Math.hypot(xL-o.xo, yL-o.yo); ux=(xL-o.xo)/len; uy=(yL-o.yo)/len;
+  }
+  const D=o.yo-yL, Tf=D/v, vx=(xL-o.xo)/Tf, fall=(o.zo+0.5*o.dip*Tf*Tf)/Tf;
+  const net=netPass(o, xL, yL, v), N=SPORT.hitter.net;
+  const clear = Math.abs(net.x-CENTRE)>N.halfWidth ? -Infinity : net.z-netNeed(net.x);
+  return { ...o, xL, yL, vx, ux, uy, ext, fall, net, clear, ok: clear>=0 };
+}
+// Where a ball from o, landing at (xL, yL) at court speed v, crosses the net (y = NET_Y): x and the ball centre's height
+function netPass(o, xL, yL, v){
+  const D=o.yo-yL, d=NET_Y-yL, s=d/D;
+  return { x: xL+(o.xo-xL)*s, z: o.zo*s+0.5*o.dip*d*(D-d)/(v*v) };
+}
+// The least height the ball must have over the net at x: net.centre at the centre line, rising linearly to net.post at the posts
+function netNeed(x){ const N=SPORT.hitter.net; return N.centre+(N.post-N.centre)*Math.min(1, Math.abs(x-CENTRE)/N.halfWidth); }
 const SQUASH = 0.045;  // seconds the flattened ball shows at the bounce
 function stepBall(t){
   const b=ball;
@@ -541,7 +587,7 @@ function stepBall(t){
   if(bounce){ b.x=b.xL; b.y=b.yL; b.z=0; }
   else { const tf = t>=SQUASH ? t-SQUASH : t;
     b.x=b.xL+b.vx*tf; b.y=b.yL+b.vy*tf;
-    b.z = tf<0 ? -b.a*tf : Math.max(0, b.b*tf-0.5*G*tf*tf); }
+    b.z = tf<0 ? -b.a*tf-0.5*b.dip*tf*tf : Math.max(0, b.b*tf-0.5*G*tf*tf); }
   b.squash = bounce ? (b.cond==='damp' ? 1.55 : 1.35) : 1;
   b.vis = fwd(b.x,b.y)-fwd(cam.x,cam.y) > 0.4;
   trail.push({x:b.x,y:b.y,z:b.z}); if(trail.length>4) trail.shift();
