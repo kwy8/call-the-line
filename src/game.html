@@ -494,7 +494,7 @@ function drawScene(t){
   cx.fillStyle='#1F3A5F'; cx.fillRect(0,hz-8,W,9);
   cx.fillStyle='rgba(255,255,255,.55)'; cx.font=`800 ${label(7,0.024)}px "Barlow Condensed", sans-serif`; cx.textAlign='left';
   for(let x=-20;x<W;x+=120) cx.fillText('CALL THE LINE', x, hz-1.5);
-  drawCourt(T, hz, ball ? ball.match : S.match, C);
+  drawCourt(T, hz, ball ? ball.match : S.match, C, ()=>{ if(ball){ drawHitter(ball); drawPartner(ball); } });
   if((replay && replay.mark) || (attract && attract.mark)) drawMark(ball);   // ghost replay or attract mode: the bounce mark
   // ball
   if(ball && ball.vis){
@@ -517,6 +517,7 @@ function drawScene(t){
   const vg=cx.createRadialGradient(W/2,H*0.45,H*0.35,W/2,H*0.45,H*0.95); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,night?'rgba(0,0,0,.38)':'rgba(0,0,0,.18)');
   cx.fillStyle=vg; cx.fillRect(0,0,W,H);
   const rf=label(10,0.03), rail=Math.round(rf*1.6), base=H-rail*0.31;
+  drawHands(t, H-rail);
   cx.fillStyle='#16221B'; cx.fillRect(0,H-rail,W,rail);
   cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(0,H-rail,W,2);
   cx.fillStyle='#D6E23A'; cx.font=`800 ${rf}px "Barlow Condensed", sans-serif`; cx.textAlign='left'; cx.fillText('LINE JUDGE · '+(ball?lineName(ball.seat,ball.match):lineName('sideline-right','singles')).toUpperCase(), 10, base);
@@ -545,7 +546,7 @@ function drawCoach(){
   cx.textAlign='center'; cx.fillStyle=now?'#16221B':'#F4F6F1'; cx.fillText(l1.toUpperCase(), W/2, y);
   cx.font=`600 ${small}px "Barlow", sans-serif`; cx.fillText(l2, W/2, y+big*1.05);
 }
-function drawCourt(T, hz, match, cond){ // the whole doubles court, from any seat, in the match conditions
+function drawCourt(T, hz, match, cond, behindNet){ // the whole doubles court, from any seat, in the match conditions; behindNet() draws what the net hides
   const L=-SINGLES_W, BW=LINE_W, DL=L-ALLEY, DR=ALLEY+LINE_W, across=cam.yaw!==0;  // DL..DR: outer edges of the doubles sidelines
   // nothing behind the judge is drawn: facing down the court that means y < yN, facing across it x > cam.x-1.2
   const yN = across ? -15 : cam.y+1.2, yF=60, y0=Math.max(0,yN);
@@ -573,6 +574,7 @@ function drawCourt(T, hz, match, cond){ // the whole doubles court, from any sea
   // always in front of the judge)
   if(cond==='late'){ const yl=x=>-2-0.9*(x-6); poly([[DR,yl(DR)],[DR,yl(DR)+4],[DL,yl(DL)+4],[DL,yl(DL)]], 'rgba(15,20,35,.30)'); }
   if(night){ const gl=cx.createRadialGradient(W/2,H*0.6,0,W/2,H*0.6,W*0.7); gl.addColorStop(0,'rgba(255,255,235,.10)'); gl.addColorStop(1,'rgba(255,255,235,0)'); cx.fillStyle=gl; cx.fillRect(0,0,W,H); }
+  if(behindNet) behindNet();
   // net sagging from its post height to its centre height: singles sticks, or doubles posts outside the doubles lines
   const N=SPORT.net, pl = match==='doubles' ? DL-N.postOutside : L-N.singlesStick, pr = match==='doubles' ? DR+N.postOutside : N.singlesStick;
   poly([[pl,NET_Y,0],[pr,NET_Y,0],[pr,NET_Y,N.postHeight],[CENTRE,NET_Y,N.centreHeight],[pl,NET_Y,N.postHeight]], across ? 'rgba(20,30,40,.2)' : 'rgba(20,30,40,.5)');
@@ -659,7 +661,9 @@ function ballAt(b, t, held){
 // Put the ball at time t. The squash shows while 0 <= t < SQUASH, and on the first frame past the bounce even if that
 // frame comes later (a slow frame rate), so it is never skipped.
 function stepBall(t){
-  const b=ball, held = t>=0 && (t<SQUASH || !b.squashed);
+  const b=ball;
+  if(t<b.t0){ b.t=t; b.vis=false; b.squash=1; return; }   // not hit yet: the hitter is still shaping up
+  const held = t>=0 && (t<SQUASH || !b.squashed);
   if(held) b.squashed=true;
   Object.assign(b, ballAt(b, t, held));
   b.t=t; b.squash = held ? (b.cond==='damp' ? 1.55 : 1.35) : 1;
@@ -759,6 +763,138 @@ function loop(ts){
   }
   drawScene(ts/1000);
 }
+// ---------- Figures ----------
+// Flat silhouettes in the court's palette, drawn through the court's camera: the far player who hits each ball (from
+// its origin), the near player waiting to receive it, and the line judge's own hands in the foreground. Players are
+// keyframed poses in metres (x across the figure, y up from its feet) blended by the ball's own clock, time since the
+// hit, so they keep time at any refresh rate and replay with the ghost replay. No random draws: the daily is untouched.
+const FIG = { lead:0.8, far:'#3E5F8A', near:'#1F3A5F', kit:'#FFFFFF', ball:'#D6E23A' };
+const P = (lf,rf,hip,sh,hd,lh,rh,rk) => ({ lf,rf,hip,sh,hd,lh,rh,rk });
+const POSE = {   // racket hand rh, racket head rk; the racket side is +x
+  ready:  P([-0.3,0],[0.3,0],[0,0.85],[0,1.38],[0,1.64],[-0.05,0.95],[0.15,0.92],[0.3,0.55]),
+  back:   P([-0.32,0],[0.3,0],[0.02,0.84],[-0.04,1.37],[-0.02,1.63],[0.2,1.15],[0.55,1.15],[0.9,1.38]),
+  follow: P([-0.35,0],[0.28,0],[0.04,0.84],[0.04,1.38],[0.02,1.64],[-0.3,1.15],[-0.35,1.5],[-0.6,1.88]),
+  sReady: P([-0.2,0],[0.22,0],[0,0.86],[0,1.4],[0,1.65],[-0.1,1.0],[0.18,0.95],[0.35,0.62]),
+  toss:   P([-0.2,0],[0.22,0],[0,0.8],[0,1.33],[0,1.58],[-0.08,2.05],[0.35,1.45],[0.45,1.05]),
+  sFollow:P([-0.22,0],[0.2,0],[0.05,0.82],[0.08,1.32],[0.1,1.56],[-0.35,1.2],[-0.25,0.95],[-0.42,0.6]),
+};
+const REACH = { ground:0.8, serve:0.25 };   // how far to the racket side of the body the racket meets the ball (m)
+const ease = k => k<=0 ? 0 : k>=1 ? 1 : k*k*(3-2*k);
+function blend(a, b, k){ k=ease(k); const o={}; for(const j in a) o[j]=[a[j][0]+(b[j][0]-a[j][0])*k, a[j][1]+(b[j][1]-a[j][1])*k]; return o; }
+const span = (tau, from, to) => (tau-from)/(to-from);
+// The hitter's pose tau s after the hit (negative before), with the contact pose built around the ball's height
+function hitterPose(b, tau){
+  const z=b.zo;
+  if(b.view!=='svc'){   // groundstroke: ready from 600 ms before, backswing from 300 ms, swing-through held 250 ms
+    const hit = P([-0.35,0],[0.3,0],[0.05,0.82],[0.08,1.36],[0.06,1.62],[-0.2,1.1],[0.4,Math.min(1.5,z+0.12)],[REACH.ground,z]);
+    if(tau<-0.3) return POSE.ready;
+    if(tau<-0.12) return blend(POSE.ready, POSE.back, span(tau,-0.3,-0.12));
+    if(tau<0) return blend(POSE.back, hit, span(tau,-0.12,0));
+    if(tau<0.25) return blend(hit, POSE.follow, span(tau,0,0.06));
+    return blend(POSE.follow, POSE.ready, span(tau,0.25,0.5));
+  }
+  // serve: the toss from 700 ms before, contact overhead at the hit (a jump for a high contact), follow-through 250 ms
+  const j=Math.max(0, z-2.65), lift=p=>{ const o={}; for(const k in p) o[k]=[p[k][0], p[k][1]+j]; return o; };
+  const hit = lift(P([-0.2,0],[0.2,0],[0,0.88],[0.02,1.42],[0,1.68],[-0.15,1.3],[0.14,z-j-0.42],[REACH.serve,z-j]));
+  if(tau<-0.7) return POSE.sReady;
+  if(tau<-0.25) return blend(POSE.sReady, POSE.toss, span(tau,-0.7,-0.25));
+  if(tau<0) return blend(POSE.toss, hit, span(tau,-0.25,0));
+  if(tau<0.25) return blend(hit, POSE.sFollow, span(tau,0,0.08));
+  return blend(POSE.sFollow, POSE.sReady, span(tau,0.25,0.55));
+}
+// Screen placement of a figure standing at world (x, y): its feet, pixels per metre there, and which way +x points
+function place(x, y){
+  const f=proj(x,y,0), h=proj(x,y,1);
+  return { sx:f.sx, sy:f.sy, s:f.sy-h.sy, d:f.d, m:cam.flip?1:-1 };   // +x (the racket side) shows on the left: right-handed, facing the judge
+}
+// A world offset of `x` metres along the figure's +x, for the figure placed by place()
+// (the screen's +x is the camera's right, mirrored for a left-hand seat; the figure's +x shows on the left either way)
+function sideways(x){ return [-Math.cos(cam.yaw)*x, Math.sin(cam.yaw)*x]; }
+function drawFigure(at, pose, colour){
+  if(at.d<0.6 || at.s<2) return;
+  const X=p=>at.sx+at.m*p[0]*at.s, Y=p=>at.sy-p[1]*at.s, seg=(a,b,w,c)=>{ cx.strokeStyle=c||colour; cx.lineWidth=w*at.s; cx.beginPath(); cx.moveTo(X(a),Y(a)); cx.lineTo(X(b),Y(b)); cx.stroke(); };
+  cx.lineCap='round'; cx.lineJoin='round';
+  const {lf,rf,hip,sh,hd,lh,rh,rk}=pose, lhip=[hip[0]-0.1,hip[1]], rhip=[hip[0]+0.1,hip[1]];
+  seg(lhip,lf,0.15); seg(rhip,rf,0.15);                                   // legs
+  seg(hip,sh,0.36);                                                       // torso
+  seg([hip[0]-0.15,hip[1]+0.05],[hip[0]+0.15,hip[1]+0.05],0.16,FIG.kit);  // white shorts band
+  seg([sh[0]-0.18,sh[1]],lh,0.09); seg([sh[0]+0.18,sh[1]],rh,0.09);       // arms
+  cx.fillStyle=colour; cx.beginPath(); cx.arc(X(hd),Y(hd),0.12*at.s,0,7); cx.fill();   // head
+  seg([hd[0]-0.12,hd[1]+0.03],[hd[0]+0.12,hd[1]+0.03],0.04,FIG.kit);      // headband
+  // racket: a stick from the hand, an oval head
+  const a=Math.atan2(Y(rk)-Y(rh), X(rk)-X(rh)), hx=X(rk)-Math.cos(a)*0.15*at.s, hy=Y(rk)-Math.sin(a)*0.15*at.s;
+  seg(rh,[(hx-at.sx)/at.m/at.s,(at.sy-hy)/at.s],0.035);
+  cx.fillStyle='rgba(255,255,255,.88)'; cx.beginPath(); cx.ellipse(X(rk),Y(rk),0.15*at.s,0.11*at.s,a,0,7); cx.fill();
+}
+function drawHitter(b){
+  const tau=b.t-b.t0, serve=b.view==='svc', [ox,oy]=sideways(serve?REACH.serve:REACH.ground);
+  const at=place(b.xo-ox, b.yo-oy);
+  drawFigure(at, hitterPose(b,tau), FIG.far);
+  if(serve && tau>=-0.7 && tau<0){   // the toss: up from the hand, down to the contact point at the hit
+    const k=(tau+0.7)/0.7, z=b.zo, y=(1-k)*1.0+k*z+4*(0.5*z-0.1)*k*(1-k), x=-0.1+(REACH.serve+0.1)*k;
+    cx.fillStyle=FIG.ball; cx.beginPath(); cx.arc(at.sx+at.m*x*at.s, at.sy-y*at.s, Math.max(1.5,0.034*at.s),0,7); cx.fill();
+  }
+}
+// The hitter's doubles partner, at the far net on the other half; 200 ms after the hit, two shuffle steps towards the
+// side the ball went. (A near-side receiver isn't drawn: from the judges' chairs it would be off screen, or, from the
+// baseline chair, a cut-off giant a metre from the line of sight.) Skipped where it would be off screen or cover the
+// landing zone.
+const PARTNER = { net:2.2, half:2.4, move:[0.2,0.7], step:1.0 };   // m past the net; m from the centre line; s after the hit; m moved
+function drawPartner(b){
+  if(b.match!=='doubles') return;
+  const half=b.xo>CENTRE ? -1 : 1, x0=CENTRE+half*PARTNER.half, dir=Math.sign(b.xL-x0)||1, y=NET_Y+PARTNER.net;
+  if(b.mate===undefined){   // decided once per ball, from where it stands at the start and the end of its move
+    const box=x=>{ const a=place(x,y); return a.d<3 ? null : [a.sx-0.6*a.s, a.sy-2*a.s, a.sx+0.6*a.s, a.sy]; };
+    const A=box(x0), B=box(x0+dir*PARTNER.step), L=proj(b.xL,b.yL,0), lz=[L.sx-50, L.sy-40, L.sx+50, L.sy+20];
+    const meets=(r,q)=>r[0]<q[2] && r[2]>q[0] && r[1]<q[3] && r[3]>q[1], screen=[0,0,W,H];
+    b.mate = !!(A && B && (meets(A,screen)||meets(B,screen)) && !meets(A,lz) && !meets(B,lz));
+  }
+  if(!b.mate) return;
+  const tau=b.t-b.t0, p=ease(span(tau,PARTNER.move[0],PARTNER.move[1])), pose=blend(POSE.ready, POSE.ready, 0);   // a copy
+  if(p>0 && p<1){ const w=Math.sin(p*Math.PI*2)*0.22; pose.lf=[-0.18+w,0]; pose.rf=[0.18-w,0]; }   // two shuffle steps
+  drawFigure(place(x0+dir*PARTNER.step*p, y), pose, FIG.far);
+}
+// The judge's own hands and forearms, lower centre, from the chair. Resting on the knees; OUT: the right arm out to the
+// side, index pointed, held 600 ms; IN: both hands sweep flat, palms down, held 400 ms; overruled: back to the knees
+// slowly over 800 ms. Keyed to the wall clock of the call, so the ghost replay doesn't rewind them. They always stay at
+// least 5% of the court's height below the landing spot, sliding lower when they must, so they never cover it.
+let judgeSig=null;   // { call, right, at } from resolve()
+const HANDS = { reach:0.12, holdOut:0.6, holdIn:0.4, back:0.25, drop:0.8, clear:0.05 };
+function handsTop(bottom){   // the top of the hands' area: never above the landing spot's clearance
+  const k=Math.min(W/720, H/480), land = ball ? proj(ball.xL,ball.yL,0).sy : 0;
+  return Math.max(bottom-90*k, land+HANDS.clear*H);
+}
+function drawHands(now, bottom){
+  const k=Math.min(W/720, H/480), top=handsTop(bottom), dy=top-(bottom-90*k);   // dy: how far the hands slid down
+  const rest={ l:[W/2-95*k, bottom-30*k], r:[W/2+95*k, bottom-30*k] };
+  let pose={ l:rest.l, r:rest.r, out:0, flat:0 };
+  const s=judgeSig && !attract ? judgeSig : null;
+  if(s){
+    const e=now-s.at/1000, sig = s.call==='out' ? { l:rest.l, r:[W-70*k, bottom-78*k], out:1, flat:0 } : { l:[W/2-62*k, bottom-70*k], r:[W/2+62*k, bottom-70*k], out:0, flat:1 };
+    const hold = s.call==='out' ? HANDS.holdOut : HANDS.holdIn;
+    const k1 = e<HANDS.reach ? ease(e/HANDS.reach) : s.right ? 1-ease((e-hold)/HANDS.back) : 1-ease((e-HANDS.reach)/HANDS.drop);
+    const mixp=(a,b)=>[a[0]+(b[0]-a[0])*k1, a[1]+(b[1]-a[1])*k1];
+    pose={ l:mixp(rest.l,sig.l), r:mixp(rest.r,sig.r), out:sig.out*k1, flat:sig.flat*k1 };
+  }
+  const elbow={ l:[W/2-165*k, bottom+70*k], r:[W/2+165*k, bottom+70*k] };
+  if(pose.out) elbow.r=[elbow.r[0]+(W*0.62-elbow.r[0])*pose.out, elbow.r[1]+(bottom-40*k-elbow.r[1])*pose.out];   // the arm lifts out to the side
+  cx.save(); cx.translate(0,dy); cx.lineCap='round';
+  for(const h of ['l','r']){
+    const w=pose[h], el=elbow[h], a=Math.atan2(w[1]-el[1], w[0]-el[0]);
+    const c=Math.cos(a), sn=Math.sin(a), cw=[w[0]-c*8*k, w[1]-sn*8*k];   // cw: the cuff, just short of the wrist
+    cx.lineCap='butt'; cx.strokeStyle=FIG.near; cx.lineWidth=30*k; cx.beginPath(); cx.moveTo(el[0],el[1]); cx.lineTo(cw[0],cw[1]); cx.stroke();   // sleeve
+    cx.strokeStyle=FIG.kit; cx.lineWidth=30*k; cx.beginPath(); cx.moveTo(cw[0],cw[1]); cx.lineTo(cw[0]+c*5*k, cw[1]+sn*5*k); cx.stroke();   // white cuff band
+    // the hand, a mitten silhouette: palm then fingers, along the forearm; for IN it turns flat, palm down and wide
+    const flat=pose.flat, ang=a*(1-flat), hc=Math.cos(ang), hs=Math.sin(ang), hx=w[0]+hc*12*k, hy=w[1]+hs*12*k;
+    cx.fillStyle='#2C4A70'; cx.beginPath(); cx.ellipse(hx,hy,(14+6*flat)*k,(12-2*flat)*k,ang,0,7); cx.fill();
+    const out = h==='r' && pose.out>0.5;
+    if(!out){ cx.beginPath(); cx.ellipse(hx+hc*14*k, hy+hs*14*k, (11+5*flat)*k, (10-2*flat)*k, ang, 0, 7); cx.fill(); }   // fingers together
+    else { cx.beginPath(); cx.ellipse(hx+hc*9*k, hy+hs*9*k, 9*k, 10*k, ang, 0, 7); cx.fill();                              // curled fingers
+      cx.strokeStyle='#2C4A70'; cx.lineCap='round'; cx.lineWidth=7*k; cx.beginPath(); cx.moveTo(hx+hc*10*k, hy+hs*10*k-4*k); cx.lineTo(hx+hc*36*k, hy+hs*36*k-4*k); cx.stroke(); }   // index finger, pointing
+  }
+  cx.restore();
+}
+
 // ---------- Attract mode ----------
 // Behind the menu and the other pre-play cards the court plays itself: every ~2.5 s a ball from a random seat, match
 // type and condition at the current level, through the same newBall()/stepBall() as play, then its mark and verdict on
@@ -766,7 +902,7 @@ function loop(ts){
 // a tournament or daily that is waiting to start is untouched; the next real serve sets the camera again.
 const ATTRACT = { every:2.5, after:1.4, low:0.8 };   // s between balls; s the verdict stays after the bounce at least; where the mark sits, as a share of the court's height (low, clear of the card)
 let attract=null;   // { start, next, mark }
-function startAttract(){ attract ||= { start:0, next:0, mark:false }; cancelAnimationFrame(raf); raf=requestAnimationFrame(loop); }
+function startAttract(){ judgeSig=null; attract ||= { start:0, next:0, mark:false }; cancelAnimationFrame(raf); raf=requestAnimationFrame(loop); }
 function stopAttract(){ attract=null; }
 function attractFrame(ts){
   if(ts>=attract.next){
@@ -775,7 +911,7 @@ function attractFrame(ts){
     newBall(); Object.assign(S, keep);
     // look further down the court until the landing spot sits low in the picture
     for(let f=fwd(ball.xL,ball.yL)+ball.geo.aim, k=0; k<120 && proj(ball.xL,ball.yL,0).sy<H*ATTRACT.low; k++) setPitch(f+=0.25);
-    attract.start=ts; attract.mark=false; attract.next=ts+Math.max(ATTRACT.every, -ball.t0+ATTRACT.after)*1000;
+    attract.start=ts+FIG.lead*1000; attract.mark=false; attract.next=attract.start+Math.max(ATTRACT.every-FIG.lead, -ball.t0+ATTRACT.after)*1000;
   }
   const t=(ts-attract.start)/1000+ball.t0;
   stepBall(t); if(t>=0) attract.mark=true;
@@ -802,14 +938,16 @@ function startPoint(){
   $('timerTrack').style.visibility = practice ? 'hidden' : '';
   $('timer').style.width='100%'; setButtons(false); hideOverlay(); toast('');
   clearTimeout(quipTimer); $('quip').hidden=true;
-  S.phase='flight'; tStart=performance.now(); cancelAnimationFrame(raf); raf=requestAnimationFrame(loop); hud();
-  schedulePock(tStart-ball.t0*1000);   // the bounce happens at t = 0, i.e. -t0 seconds after the ball appears
+  // the clock starts FIG.lead s before the hit, so the hitter shapes up first; the bounce is at t = 0
+  judgeSig=null; S.phase='flight'; tStart=performance.now()+FIG.lead*1000; cancelAnimationFrame(raf); raf=requestAnimationFrame(loop); hud();
+  schedulePock(tStart-ball.t0*1000);   // the bounce happens -t0 s after the hit
 }
 function setButtons(on){ $('btnIn').disabled=!on; $('btnOut').disabled=!on; $('rulesBtn').disabled=on; $('statsBtn').disabled=on; }
 function makeCall(c){ if(S.phase!=='window'||resolved) return; resolve(c,(performance.now()-callT)/1000); }
 function resolve(call, elapsed){
   resolved=true; S.phase='review'; setButtons(false);
   const right = call!==null && (call==='in')===ball.isIn;
+  judgeSig = call===null ? null : { call, right, at:performance.now() };   // the judge's hands signal the call
   if(right && coach && S.mode==='career'){ coach=false; try{ localStorage.setItem('ctl.coached','1'); }catch(e){} }
   if(S.mode==='practice'){ // no score, no strikes, no stats or badges: just the call and this session's tally
     toast(call===null?'No call':CALL[call].toLowerCase(), right?'Correct':'Overruled');

@@ -7,7 +7,7 @@
 //   - the margin the game reports equals the measured gap between the mark and the line's outer edge
 //   - balls in the doubles alley are out in a singles match and in in a doubles match (and both cases occur)
 //   - a baseline or service-line ball lands inside the judged length without touching a sideline
-//   - the landing spot and the judged line are on screen
+//   - the landing spot and the judged line are on screen, and the judge's hands stay clear below the landing spot
 //   - the ball comes from a plausible hitter: its flight, traced back with the game's own stepBall(), starts inside the
 //     groundstroke or serve zone (a serve from the half diagonally opposite its box), crosses the net between the posts
 //     with the required height, and travels from the far half towards the near half
@@ -42,7 +42,7 @@ if (!END.test(match[1])) fail('src/game.html script no longer ends with "})();"'
 const src = match[1].replace(END, `window.__ctl={ S, newBall, startPoint, resolve, dailyStart, proj, cam, SEATS,
   get ball(){ return ball; }, get W(){ return W; }, get H(){ return H; },
   LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, DAILY_LEVELS, TIERS, CONDITIONS, pickCond, stepBall,
-  ST, nextStep, practiceStart, finishReplay, landDistance, pickSeat, SEAT_CHOICES,
+  ST, nextStep, practiceStart, handsTop, finishReplay, landDistance, pickSeat, SEAT_CHOICES,
   shiftKey, streakAfterPlaying, streakNow, streakLoad, shareText, get replay(){ return replay; }, get PR(){ return PR; } };})();`);
 
 // A seeded Math.random so every run checks the same balls and a failure can be reproduced.
@@ -128,6 +128,7 @@ for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (co
       // on screen: landing spot inside the view (20 px margin), judged line at the landing spot above the chair rail
       const p = g.proj(b.xL, b.yL, 0);
       check(p.d > 0 && p.sx >= 20 && p.sx <= g.W - 20 && p.sy >= 20 && p.sy <= g.H - 20, `${tag}: landing spot off screen (${p.sx.toFixed(0)}, ${p.sy.toFixed(0)})`);
+      check(g.handsTop(g.H - 16) >= p.sy + 0.05 * g.H - 1e-9, `${tag}: the judge's hands would reach within 5% of the court's height of the landing spot`);
       const l = V.axis === 'x' ? g.proj(V.line, b.yL, 0) : g.proj(b.xL, V.line, 0);
       check(l.d > 0 && l.sx >= 0 && l.sx <= g.W && l.sy >= 0 && l.sy <= g.H - 16, `${tag}: judged line off screen (${l.sx.toFixed(0)}, ${l.sy.toFixed(0)})`);
       // the hitter: where the drawn flight starts (the origin; a ball without one starts where it comes into view) and
@@ -160,6 +161,7 @@ for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (co
       Object.assign(L.S, { seat: id, match, cond, tier, call: 1 }); L.newBall(); n++;
       const b = L.ball, V = b.geo, tag = `landscape ${cond} ${match} ${id} tier ${tier} ball ${i}`, p = L.proj(b.xL, b.yL, 0);
       check(p.d > 0 && p.sx >= 20 && p.sx <= L.W - 20 && p.sy >= 20 && p.sy <= L.H - rail - 4, `${tag}: landing spot off screen (${p.sx.toFixed(0)}, ${p.sy.toFixed(0)})`);
+      check(L.handsTop(L.H - rail) >= p.sy + 0.05 * L.H - 1e-9, `${tag}: the judge's hands would reach within 5% of the court's height of the landing spot`);
       const l = V.axis === 'x' ? L.proj(V.line, b.yL, 0) : L.proj(b.xL, V.line, 0);
       check(l.d > 0 && l.sx >= 0 && l.sx <= L.W && l.sy >= 0 && l.sy <= L.H - rail, `${tag}: judged line off screen (${l.sx.toFixed(0)}, ${l.sy.toFixed(0)})`);
     }
@@ -292,8 +294,8 @@ check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1
   // (15 Hz frames are 67 ms apart, so at some frame phases none falls inside the 45 ms: every phase is tried)
   for (const hz of [15, 60, 144, 240]) for (let phase = 0; phase < 1000 / hz; phase += hz === 15 ? 5 : 1000) {
     serve(); frames.length = 0; g.startPoint();
-    const dt = 1000 / hz, bounceMs = -g.ball.t0 * 1000; let n = 0, first = null, last = null;
-    for (let t = phase; t < bounceMs + 300; t += dt) { tick(t); if (g.ball.squash > 1) { n++; first ??= t; last = t; } }
+    const dt = 1000 / hz; let n = 0, first = null, last = null;
+    for (let t = phase; !(g.ball.t > 0.3); t += dt) { tick(t); if (g.ball.squash > 1) { n++; first ??= t; last = t; } }
     const shown = n ? last - first + dt : 0;
     if (hz === 15) check(n === 1, `${hz} Hz, frame phase ${phase} ms: the squash must show on exactly one frame, got ${n}`);
     else check(Math.abs(shown - 45) <= dt, `${hz} Hz: the squash shows for ${shown.toFixed(1)} ms (${n} frames), expected 45 ms`);
