@@ -59,23 +59,6 @@ canvas{display:block;width:100%;aspect-ratio:3/2;max-width:100%;touch-action:pan
 .btn.small{font-size:17px;padding:11px 18px} .btn.ghost.small{padding-block:10px}
 .linkbtn{appearance:none;border:0;background:none;color:var(--navy);font:inherit;font-size:14px;text-decoration:underline;cursor:pointer;padding:12px 14px;margin:-8px 0}
 .start{display:flex;flex-direction:column;align-items:center;gap:8px}
-/* start-screen demo, two shots per loop: an IN that clips the line, then an OUT. Each shot runs in the first half of
-   its keyframes; the OUT shot (.out) is offset half a cycle with a negative delay. */
-.demo{position:relative;width:100%;max-width:320px;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(22,34,27,.12)}
-.demo svg{display:block;width:100%;height:auto}
-.demo .shot{--x0:176px;--y0:6px;--x1:152px;--y1:74px;--x2:160px;--y2:138px;--d:0s}
-.demo .out{--x0:198px;--y0:4px;--x1:170px;--y1:62px;--x2:188px;--y2:138px;--d:-2.4s}
-.demo .dm-pos,.demo .dm-h,.demo .dm-mark,.demo .dm-a{animation-duration:4.8s;animation-timing-function:linear;animation-iteration-count:infinite;animation-delay:var(--d)}
-.demo .dm-pos{animation-name:dm-pos} .demo .dm-h{animation-name:dm-h} .demo .dm-mark{animation-name:dm-mark} .demo .dm-a{animation-name:dm-a}
-.demo .dm-t{position:absolute;left:12px;top:12px;font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:.04em;line-height:1;opacity:0}
-.demo .dm-q{font-size:24px;color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.3);animation:dm-q 2.4s linear infinite}
-.demo .dm-a{font-size:22px;color:var(--good);background:#fff;border-radius:999px;padding:5px 12px 4px}
-.demo .dm-a.out{color:var(--bad)}
-@keyframes dm-pos{0%{transform:translate(var(--x0),var(--y0)) scale(.35);opacity:0} 3%{opacity:1} 16%{transform:translate(var(--x1),var(--y1)) scale(1)} 25%{transform:translate(var(--x2),var(--y2)) scale(1.7);opacity:1} 26%,100%{opacity:0}}
-@keyframes dm-h{0%{transform:translateY(-10px)} 8%{transform:translateY(-22px)} 16%{transform:translateY(0)} 25%,100%{transform:translateY(-26px)}}
-@keyframes dm-mark{0%,15.5%{opacity:0} 16.5%,47%{opacity:1} 49%,100%{opacity:0}}
-@keyframes dm-q{0%,38%{opacity:0} 42%,60%{opacity:1} 64%,100%{opacity:0}}
-@keyframes dm-a{0%,32%{opacity:0;transform:scale(.8)} 34%{opacity:1;transform:scale(1.08)} 36%,47%{opacity:1;transform:scale(1)} 49%,100%{opacity:0}}
 .rules{width:100%;text-align:left;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:10px 14px;display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:baseline}
 .rules b{font-family:var(--display);font-weight:800;font-size:22px;color:var(--navy);line-height:1}
 .rules span{font-size:15px}
@@ -162,7 +145,55 @@ footer .legal a{color:inherit;text-decoration:underline;display:inline-block;min
   .toast{font-size:36px}
 }
 @media (max-width:359px){ .eagle{grid-template-columns:1fr;justify-items:center;text-align:center} }
-@media (prefers-reduced-motion:reduce){ .call{transition:none} .demo *{animation:none!important} .demo .dm-pos,.demo .out .dm-mark{opacity:0} .demo .dm-q{opacity:1} }
+@media (prefers-reduced-motion:reduce){ .call{transition:none} }
+.menu-legal{display:none}
+.menu-legal a{color:inherit}
+/* Landscape (desktop, the CrazyGames iframe from 800x450 up, phones on their side): no column. The court fills the
+   height above a 56 px strip with In/Out and the timer, at most 16:9 wide, centred on the page background. HUD, tools
+   and the Menu button float over the court's top corners; cards sit over court and strip. Nothing scrolls. */
+@media (orientation:landscape) and (min-width:481px){
+  html,body{overflow:hidden}
+  .wrap{max-width:none;width:min(100vw,calc((100vh - 56px)*16/9));width:min(100vw,calc((100dvh - 56px)*16/9));height:100vh;height:100dvh;
+    padding:0;gap:0;display:grid;grid-template-rows:minmax(0,1fr) 56px;position:relative}
+  header{position:absolute;top:8px;left:8px;z-index:4;flex-wrap:nowrap;align-items:center;gap:14px;background:rgba(255,255,255,.9);border-radius:8px;padding:5px 10px 4px;box-shadow:0 1px 3px rgba(22,34,27,.15)}
+  .brand .logo{height:22px}
+  .hud{gap:12px;align-items:center} .hud .v{font-size:20px} .hud .k{font-size:9px;letter-spacing:.06em}
+  .strikes{padding-block:3px 1px} .strikes i{width:12px;height:12px}
+  .stage{min-height:0;border:0;border-radius:0;box-shadow:none;overflow:visible}
+  canvas{width:100%;height:100%;aspect-ratio:auto}
+  .tourney{position:absolute;top:52px;left:8px;z-index:2;gap:10px;border:0;border-radius:999px;background:rgba(255,255,255,.9);padding:3px 12px;font-size:12px;box-shadow:0 1px 3px rgba(22,34,27,.15)}
+  .tourney b{font-size:14px}
+  .timer{position:absolute;left:0;right:0;top:100%;height:5px;z-index:1}
+  .calls{gap:8px;padding:10px 8px 6px}
+  .call{display:flex;align-items:center;justify-content:center;gap:12px;padding:0;font-size:26px;border-radius:8px;box-shadow:inset 0 -3px 0 rgba(0,0,0,.18)}
+  .call small{display:inline;margin:0;font-size:11px}
+  .tools{position:absolute;top:8px;right:8px;z-index:4;display:flex;gap:6px}
+  .btn.tool{width:36px;min-height:36px;height:36px;padding:0;font-size:0;background:rgba(255,255,255,.9);border-width:2px}
+  .btn.tool svg{width:18px;height:18px}
+  footer{position:absolute;top:8px;right:140px;z-index:4;display:block}
+  footer .legal{display:none}
+  footer button{min-height:36px;height:36px;margin:0;padding:0 12px;border:2px solid var(--navy);border-radius:6px;background:rgba(255,255,255,.9);
+    font-family:var(--display);font-weight:800;font-size:16px;letter-spacing:.05em;text-transform:uppercase;text-decoration:none}
+  .badge-toast,.practice-panel{top:92px}
+  .toast{font-size:clamp(34px,7vh,64px)} .toast small{font-size:clamp(17px,3vh,26px)}
+  .overlay{inset:0 0 -56px 0;z-index:3;padding:52px 12px 8px}
+  .menu-legal{display:block}
+}
+/* short landscape (the 800x450 iframe up to about 720p): compact cards so every one fits without scrolling */
+@media (orientation:landscape) and (min-width:481px) and (max-height:760px){
+  .card{gap:7px}
+  .card h2{font-size:30px}
+  .btn{font-size:19px;padding:8px 20px} .btn.ghost{padding-block:6px} .btn.big{font-size:24px;padding:9px 44px}
+  .btn.small{font-size:16px;padding:7px 14px} .btn.ghost.small{padding-block:6px}
+  .linkbtn{padding:6px 10px;margin:-4px 0}
+  .chips{gap:4px} .chip{font-size:11px;padding:3px 8px} .chip b{font-size:14px}
+  .rules{padding:7px 10px;gap:4px 10px} .rules b{font-size:18px} .rules span{font-size:13px;line-height:1.3}
+  .seatmap{width:72px;height:115px}
+  .eagle{grid-template-columns:130px 1fr;padding:8px} .eagle canvas{width:130px;height:130px} .eagle .verdict{font-size:32px}
+  .badges{max-width:360px;grid-template-columns:repeat(5,1fr)} .badge-cell svg{width:44px;height:44px}
+  .lb{font-size:12px;line-height:1.25}
+  .picker{width:110px;height:176px}
+}
 </style>
 
 <div class="wrap">
@@ -219,7 +250,7 @@ footer .legal a{color:inherit;text-decoration:underline;display:inline-block;min
   </div>
 
   <footer>
-    <span id="homeWrap" hidden><button id="home" type="button">Home</button></span>
+    <span id="homeWrap" hidden><button id="home" type="button">Menu</button></span>
     <span class="legal" id="legal"><a href="/privacy.html">Privacy</a> · <a href="/privacy.html#impressum">Contact</a> · © 2026 Call the Line</span>
   </footer>
 </div>
@@ -387,12 +418,16 @@ try{ S.best=+localStorage.getItem('ctl.best')||0; S.bestTier=+localStorage.getIt
 const $ = id=>document.getElementById(id);
 const cv = $('court'), cx = cv.getContext('2d');
 let W = 720, H = 480, FPX = 1400;   // logical size follows the displayed box; focal length scales with width
-let dpr = 1, booted = false;
+let dpr = 1, booted = false;   // dpr: backing-store pixels per logical pixel
+// The landscape layout (see the CSS): the court fills the height, and its labels scale with it
+const LANDSCAPE = '(orientation:landscape) and (min-width:481px)';
+let land = false;
 function fit(){
-  dpr=Math.min(2,window.devicePixelRatio||1);
   const r=cv.getBoundingClientRect(); const cw=r.width||720, ch=r.height||480;
+  land = !!window.matchMedia?.(LANDSCAPE).matches;
   W=720; H=Math.round(720*ch/cw); FPX=1400;
-  cv.width=W*dpr; cv.height=H*dpr;
+  dpr=Math.min(2,window.devicePixelRatio||1)*cw/W;   // backing store = displayed size x devicePixelRatio (at most 2)
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
   if(booted && S.phase!=='flight' && S.phase!=='window') drawScene(performance.now()/1000);
 }
 fit(); window.addEventListener('resize', fit); window.addEventListener('orientationchange', ()=>setTimeout(fit,150));
@@ -446,7 +481,7 @@ function drawScene(t){
   if(C==='late'){ cx.fillStyle='rgba(150,90,30,.07)'; cx.fillRect(0,top,W,78); } // warm low sun
   // hoarding
   cx.fillStyle='#1F3A5F'; cx.fillRect(0,hz-8,W,9);
-  cx.fillStyle='rgba(255,255,255,.55)'; cx.font='800 7px "Barlow Condensed", sans-serif'; cx.textAlign='left';
+  cx.fillStyle='rgba(255,255,255,.55)'; cx.font=`800 ${label(7,0.024)}px "Barlow Condensed", sans-serif`; cx.textAlign='left';
   for(let x=-20;x<W;x+=120) cx.fillText('CALL THE LINE', x, hz-1.5);
   drawCourt(T, hz, ball ? ball.match : S.match, C);
   if(replay && replay.mark) drawMark(ball);   // ghost replay: the bounce mark on the court
@@ -470,15 +505,33 @@ function drawScene(t){
   // vignette + chair rail
   const vg=cx.createRadialGradient(W/2,H*0.45,H*0.35,W/2,H*0.45,H*0.95); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,night?'rgba(0,0,0,.38)':'rgba(0,0,0,.18)');
   cx.fillStyle=vg; cx.fillRect(0,0,W,H);
-  cx.fillStyle='#16221B'; cx.fillRect(0,H-16,W,16);
-  cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(0,H-16,W,2);
-  cx.fillStyle='#D6E23A'; cx.font='800 10px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('LINE JUDGE · '+(ball?lineName(ball.seat,ball.match):lineName('sideline-right','singles')).toUpperCase(), 10, H-5);
+  const rf=label(10,0.03), rail=Math.round(rf*1.6), base=H-rail*0.31;
+  cx.fillStyle='#16221B'; cx.fillRect(0,H-rail,W,rail);
+  cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(0,H-rail,W,2);
+  cx.fillStyle='#D6E23A'; cx.font=`800 ${rf}px "Barlow Condensed", sans-serif`; cx.textAlign='left'; cx.fillText('LINE JUDGE · '+(ball?lineName(ball.seat,ball.match):lineName('sideline-right','singles')).toUpperCase(), 10, base);
   const total = S.mode==='daily' ? DAILY_N : T.calls;
-  cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(S.mode==='practice' ? `PRACTICE · BALL ${S.call}` : `CALL ${Math.min(S.call,total)} OF ${total}`, W-10, H-5);
-  if(replay){ // label the replay, top left
-    cx.fillStyle='rgba(22,34,27,.72)'; cx.fillRect(10,10,112,22);
-    cx.fillStyle='#D6E23A'; cx.font='800 12px "Barlow Condensed", sans-serif'; cx.textAlign='left'; cx.fillText('REPLAY · ¼ SPEED', 18, 25);
+  cx.fillStyle='#F4F6F1'; cx.textAlign='right'; cx.fillText(S.mode==='practice' ? `PRACTICE · BALL ${S.call}` : `CALL ${Math.min(S.call,total)} OF ${total}`, W-10, base);
+  if(replay){ // label the replay: top left, or top centre in landscape, where the HUD covers the corners
+    const f=label(12,0.034), w=f*9.3, h=f*1.85, x=land?(W-w)/2:10;
+    cx.fillStyle='rgba(22,34,27,.72)'; cx.fillRect(x,10,w,h);
+    cx.fillStyle='#D6E23A'; cx.font=`800 ${f}px "Barlow Condensed", sans-serif`; cx.textAlign='center'; cx.fillText('REPLAY · ¼ SPEED', x+w/2, 10+h*0.68);
   }
+  if(coachOn()) drawCoach();
+}
+// Canvas text size: px in the column layouts; in landscape a share of the court's height, never smaller than px
+function label(px, share){ return land ? Math.max(px, Math.round(share*H*10)/10) : px; }
+// First-time coaching, in the court itself: for a new player's first 3 balls, until their first correct call
+let coach=false;
+function coachOn(){ return coach && S.mode==='career' && S.tier===0 && S.call>=1 && S.call<=3 && (S.phase==='flight'||S.phase==='window'); }
+function drawCoach(){
+  const touch = !!window.matchMedia?.('(hover:none)').matches, now = S.phase==='window';
+  const big=label(16,0.05), small=label(11,0.03), y=H*0.3;
+  const keys = `← ${CALL.in.toLowerCase()}    → ${CALL.out.toLowerCase()}`;
+  const l1 = now ? `${CALL.in} or ${CALL.out}?` : 'Watch the ball land', l2 = touch ? (now ? 'Tap a button below' : `then tap ${CALL.in} or ${CALL.out}`) : (now ? keys : `then call  ${keys}`);
+  cx.font=`800 ${big}px "Barlow Condensed", sans-serif`; const w=Math.max(cx.measureText?.(l1.toUpperCase())?.width||0, big*9)+big*1.6;
+  cx.fillStyle=now?'rgba(214,226,58,.95)':'rgba(22,34,27,.78)'; cx.beginPath(); cx.roundRect?.(W/2-w/2, y-big*1.3, w, big*2.75, big*0.5); cx.fill();
+  cx.textAlign='center'; cx.fillStyle=now?'#16221B':'#F4F6F1'; cx.fillText(l1.toUpperCase(), W/2, y);
+  cx.font=`600 ${small}px "Barlow", sans-serif`; cx.fillText(l2, W/2, y+big*1.05);
 }
 function drawCourt(T, hz, match, cond){ // the whole doubles court, from any seat, in the match conditions
   const L=-SINGLES_W, BW=LINE_W, DL=L-ALLEY, DR=ALLEY+LINE_W, across=cam.yaw!==0;  // DL..DR: outer edges of the doubles sidelines
@@ -699,6 +752,7 @@ function resolve(call, elapsed){
   resolved=true; S.phase='review'; setButtons(false);
   cancelAnimationFrame(raf); drawScene(performance.now()/1000);  // last frame; nothing moves under the cards
   const right = call!==null && (call==='in')===ball.isIn;
+  if(right && coach && S.mode==='career'){ coach=false; try{ localStorage.setItem('ctl.coached','1'); }catch(e){} }
   if(S.mode==='practice'){ // no score, no strikes, no stats or badges: just the call and this session's tally
     toast(call===null?'No call':CALL[call].toLowerCase(), right?'Correct':'Overruled');
     practiceTally(right);
@@ -830,7 +884,7 @@ function practiceCard(){
   for(const g of document.querySelectorAll('#picker .chair')) g.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); pick(g.dataset.seat); } });
   for(const b of document.querySelectorAll('.levels button')) b.onclick=()=>{ practiceLevel=+b.dataset.level; practiceCard(); };
   $('go').onclick=practiceStart;
-  $('back').onclick=()=>intro();
+  $('back').onclick=()=>menu();
 }
 function practiceStart(){
   const views=SEAT_CHOICES[practiceSeat];
@@ -920,7 +974,7 @@ function drawEagle(c){
 
 
 // ---------- CrazyGames SDK v3 (PORTAL only) ----------
-// gameplayStart when a ball is served, gameplayStop when a run or daily ends, on Home and while an ad plays;
+// gameplayStart when a ball is served, gameplayStop when a run or daily ends, on Menu and while an ad plays;
 // happytime for promotion, champion and a new badge, at most once every few seconds.
 const CG = (function(){
   let sdk=null, playing=false, lastHappy=-1e9;
@@ -1013,41 +1067,30 @@ const RULES = `<div class="rules">
   <b>2</b><span>If any part of the ball's mark touches the line, it's ${CALL.in.toLowerCase()}.</span>
   <b>3</b><span>Three overrules in one tournament and the cameras take your chair.</span>
 </div>`;
-function intro(){
+// The menu (the start screen for returning players on the site): career, daily, practice, rules, stats
+function menu(){
   S.phase='idle';
   const dr=dailyLoad();
   card(`
     <h2>You think it's easy being a line judge?</h2>
-    <div class="demo" aria-hidden="true">
-      <svg viewBox="0 0 320 120">
-        <rect width="320" height="120" fill="#C6673C"/>
-        <polygon points="151,0 320,0 320,120 157,120" fill="#B65C34"/>
-        <polygon points="148,0 151,0 157,120 139,120" fill="#F3EDE4"/>
-        <g class="shot"><ellipse class="dm-mark" cx="152" cy="74" rx="4.5" ry="2.4" fill="rgba(214,226,58,.9)" stroke="#16221B" stroke-width="1"/>
-          <g class="dm-pos"><ellipse rx="5" ry="2" fill="rgba(0,0,0,.3)"/><g class="dm-h"><circle cy="-4" r="4.5" fill="#D6E23A" stroke="#A9B520" stroke-width="1"/></g></g></g>
-        <g class="shot out"><ellipse class="dm-mark" cx="170" cy="62" rx="4" ry="2.1" fill="rgba(214,226,58,.9)" stroke="#16221B" stroke-width="1"/>
-          <g class="dm-pos"><ellipse rx="5" ry="2" fill="rgba(0,0,0,.3)"/><g class="dm-h"><circle cy="-4" r="4.5" fill="#D6E23A" stroke="#A9B520" stroke-width="1"/></g></g></g>
-      </svg>
-      <div class="dm-t dm-q">${CALL.in} or ${CALL.out.toLowerCase()}?</div>
-      <div class="dm-t dm-a shot">${CALL.in} · by 2 mm</div>
-      <div class="dm-t dm-a shot out">${CALL.out} · by 40 mm</div>
-    </div>
     <div class="start">
       <button class="btn big" id="go">Play</button>
       <div class="row"><button class="btn ghost small" id="daily">Daily challenge${dr?` · ${dr.results.filter(Boolean).length}/${DAILY_N}`:''}</button><button class="btn ghost small" id="practice">Practice</button></div>
-      <button class="linkbtn" id="rulesLink" type="button">Rules</button>
+      <div class="row"><button class="linkbtn" id="rulesLink" type="button">Rules</button><button class="linkbtn" id="statsLink" type="button">Stats</button></div>
     </div>
     ${S.best?`<span class="hint">Best: ${S.best.toLocaleString()} pts · ${TIERS[Math.min(S.bestTier,TIERS.length-1)].name}</span>`:''}
     ${(n=>n?`<span class="hint"><b>${streakText(n)}</b></span>`:'')(streakNow(streakLoad(), dailyToday().key))}
     <span class="hint installHint" hidden></span>
+    ${PORTAL?'':'<span class="hint menu-legal"><a href="/privacy.html">Privacy</a> · <a href="/privacy.html#impressum">Contact</a> · © 2026 Call the Line</span>'}
   `);
-  $('rulesLink').onclick=rulesCard;
+  $('rulesLink').onclick=rulesCard; $('statsLink').onclick=statsCard;
   $('homeWrap').hidden=true;
-  $('go').onclick=()=>{ S.mode='career'; S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); };
+  $('go').onclick=careerStart;
   $('daily').onclick=()=> dailyLoad() ? dailyResults() : dailyIntro();
   $('practice').onclick=practiceCard;
   installHint();
 }
+function careerStart(){ S.mode='career'; S.tier=0; S.score=0; S.streak=0; S.rescued=false; startTournament(); }
 function sideCard(html){ // shows html; its #go button puts back exactly the card that was showing
   const c=$('card'), saved=document.createDocumentFragment();
   while(c.firstChild) saved.appendChild(c.firstChild);
@@ -1110,6 +1153,8 @@ function nextBadge(){
   setTimeout(nextBadge, 2400);
 }
 function startTournament(){
+  let coached=ST.correct>0; try{ coached ||= !!localStorage.getItem('ctl.coached'); }catch(e){}
+  coach = S.tier===0 && !coached;
   const T=TIERS[S.tier], seat=pickSeat(S.tier, Math.random()), match=Math.random()<0.5?'singles':'doubles', cond=pickCond(S.tier, Math.random()); S.call=0; S.over=0; S.rescuedHere=false; hud();
   $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
   S.phase='idle';
@@ -1437,7 +1482,7 @@ function goHome(){
   toast(''); $('quip').hidden=true; $('timer').style.width='0%'; $('timerTrack').style.visibility=''; $('practicePanel').hidden=true; setButtons(false);
   const T=TIERS[0]; $('tName').textContent=T.name; $('tSw').style.background=T.court; $('tProg').textContent=T.surf;
   newBall(); ball.vis=false;
-  hud(); drawScene(performance.now()/1000); intro();
+  hud(); drawScene(performance.now()/1000); menu();
 }
 function untilMidnight(){
   const d=new Date(), m=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1), mins=Math.ceil((m-d)/6e4);
@@ -1483,7 +1528,7 @@ $('home').onclick=()=>{
   if(midRun && !homeArm){ el.textContent='Quit run? Tap again'; el.classList.add('confirm'); homeArm=setTimeout(disarmHome,3000); return; }
   disarmHome(); goHome();
 };
-function disarmHome(){ clearTimeout(homeArm); homeArm=0; $('home').textContent='Home'; $('home').classList.remove('confirm'); }
+function disarmHome(){ clearTimeout(homeArm); homeArm=0; $('home').textContent='Menu'; $('home').classList.remove('confirm'); }
 $('rulesBtn').onclick=()=>{ if(S.phase==='idle'||S.phase==='end'||(S.phase==='review' && $('nx') && !$('overlay').hidden)) rulesCard(); };
 $('statsBtn').onclick=()=>{ if(S.phase==='idle'||S.phase==='end'||(S.phase==='review' && $('nx') && !$('overlay').hidden)) statsCard(); };
 function renderMute(){ // speaker with sound waves, or with a slash through it when muted
@@ -1500,7 +1545,12 @@ renderMute();
 function sportText(){ // the call buttons' words, from SPORT
   for(const [id,word] of [['btnIn',CALL.in],['btnOut',CALL.out]]){ const t=$(id).firstChild; if(t) t.nodeValue=word; }
 }
-function start(){ booted=true; sportText(); if(PORTAL) $('legal').hidden=true; hud(); setPitch(6); newBall(); ball.vis=false; drawScene(0); intro(); }
+// Into play: on a game portal, and for anyone who has never made a call, straight to the first tournament's card (its
+// Play is the one click); returning players on the site get the menu.
+function start(){
+  booted=true; sportText(); if(PORTAL) $('legal').hidden=true; hud(); setPitch(6); newBall(); ball.vis=false; drawScene(0);
+  PORTAL || ST.calls===0 ? careerStart() : menu();
+}
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start();
 })();
 </script>

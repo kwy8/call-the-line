@@ -29,10 +29,13 @@ Or just open `www/index.html` after `npm run build`.
 ## Check
 
 ```
-npm run check        # game geometry/daily-seed check, then the leaderboard Worker check; no browser or network needed
+npm run check        # game geometry/daily-seed check, the leaderboard Worker check, then the layout check in headless Chromium
+npm run check:layout # just the layout check (needs: npx playwright install chromium)
 ```
 
 `scripts/check.mjs` loads the script from `src/game.html` in Node with a stubbed page and canvas and a seeded `Math.random`, then generates 300 balls for every seat view, tournament, match type and condition with the game's own `newBall()`. The game has four seats (left and right sideline, baseline, service line); the baseline and service-line seats each take one of two views (either end), so the geometry is checked on all six views. It fails if in/out doesn't match the sign of the margin, if the bounce mark traced against the judged line disagrees with the call or the reported margin, if a landing spot or the judged line is off screen, or if the daily challenge gives different balls or a different seat for the same date. It also checks seat assignment, the ghost replay and practice mode, and compares the 2026-10-01 daily (level, seat, match type, condition, first 5 balls) with a frozen fixture, so any change to daily generation fails until the fixture is deliberately regenerated. Run it after changing seats, cameras, `TIERS` or the ball code. It needs the game script to stay one `(function(){ ... })();` block, since that is where it hooks in.
+
+`scripts/check-layout.mjs` builds `www/`, opens it in headless Chromium at 800×450, 1280×720 and 1920×1080 (the CrazyGames iframe sizes, DPR 1) and plays through the screens a player meets: the first visit's tournament card, a ball in play, the review, promotion, game over, Rules, Stats, the menu, the practice card and the daily intro. On each it fails if the page scrolls, the card scrolls, or a visible element lies outside the viewport.
 
 `scripts/check-worker.mjs` runs the leaderboard Worker's request handler against an in-memory KV: one score per player per day, the validation rules, name cleaning, ordering and rank, the rate limit and CORS. `scripts/check.mjs` also plays the game's own scoring to confirm the Worker's score bounds match it.
 
@@ -98,7 +101,7 @@ The AdMob unit IDs in `src/game.html` are Google's public **test** units. Before
 
 ### CrazyGames build
 
-`npm run build:crazygames` builds `www/` and zips it to `dist/call-the-line-crazygames.zip` with `index.html` at the root; upload that zip. On a `crazygames.com` host (`PORTAL` in `src/game.html`) the game loads the SDK, reports `gameplayStart` when a ball is served and `gameplayStop` when a run or daily ends, on Home and during an ad, calls `happytime` on promotion, champion and a new badge, and hides the Copy score/result buttons and the footer links. The Worker's `ALLOWED_ORIGIN` includes `https://www.crazygames.com` and `https://*.game-files.crazygames.com` (the game frame) so the daily leaderboard works there.
+`npm run build:crazygames` builds `www/` and zips it to `dist/call-the-line-crazygames.zip` with `index.html` at the root; upload that zip. On a `crazygames.com` host (`PORTAL` in `src/game.html`) the game loads the SDK, reports `gameplayStart` when a ball is served and `gameplayStop` when a run or daily ends, on Menu and during an ad, calls `happytime` on promotion, champion and a new badge, and hides the Copy score/result buttons and the footer links. On a portal, as on anyone's first visit, the game opens on the first tournament's card, one click from play; returning players on the site get the menu. In landscape (the iframe, desktop) the court fills the height above a 56 px In/Out strip, at most 16:9 wide, with the HUD and buttons over its top corners; phones in portrait keep the column layout. The Worker's `ALLOWED_ORIGIN` includes `https://www.crazygames.com` and `https://*.game-files.crazygames.com` (the game frame) so the daily leaderboard works there.
 
 ## Tuning
 

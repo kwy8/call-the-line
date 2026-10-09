@@ -48,18 +48,19 @@ function mulberry32(a) { return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t
 
 // Boot the game in a sandbox: the given local date/time, fresh localStorage, no audio, no timers, no animation frames.
 // Pass an array as `frames` to collect animation-frame callbacks instead, and run them yourself with a fake timestamp.
-function boot(date, seed = 1, frames = null) {
+// `view` sets the court's displayed size, and whether the page is in its landscape layout (labels scale with the court).
+function boot(date, seed = 1, frames = null, view = { width: 720, height: 480, landscape: false }) {
   const noop = () => {};
   const ctx = new Proxy({}, { get: (_, k) => (k === 'createLinearGradient' || k === 'createRadialGradient') ? () => ({ addColorStop: noop }) : noop, set: () => true });
   const els = {};
   const el = id => els[id] || (els[id] = { id, style: {}, hidden: false, disabled: false, textContent: '', innerHTML: '', children: [],
     classList: { toggle: noop, add: noop, remove: noop }, parentElement: { hidden: false }, addEventListener: noop, focus: noop,
     setAttribute: noop, getAttribute: () => null, removeAttribute: noop,
-    getContext: () => ctx, getBoundingClientRect: () => ({ width: 720, height: 480 }), width: 0, height: 0 });
+    getContext: () => ctx, getBoundingClientRect: () => ({ width: view.width, height: view.height }), width: 0, height: 0 });
   const RealDate = Date;
   class FakeDate extends RealDate { constructor(...a) { super(...(a.length ? a : [date])); } static now() { return new RealDate(date).getTime(); } }
   const store = {};
-  const window = { addEventListener: noop, devicePixelRatio: 1 };
+  const window = { addEventListener: noop, devicePixelRatio: 1, matchMedia: q => ({ matches: view.landscape && q.includes('orientation:landscape') }) };
   const SeededMath = Object.create(Math); SeededMath.random = mulberry32(seed);
   const globals = { window, document: { getElementById: el, addEventListener: noop, createDocumentFragment: () => ({ appendChild: noop }) },
     localStorage: { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } },
@@ -89,7 +90,7 @@ const POSTS = 6.4, netNeed = x => 0.95 + 0.15 * Math.min(1, Math.abs(x - CENTRE)
 const hitFail = { zone: 0, net: 0, posts: 0, direction: 0, any: 0 };
 let minClear = Infinity;
 const alley = { singles: 0, doubles: 0 };  // side-seat balls whose mark lies in the doubles alley
-let balls = 0, dampBalls = 0;
+let balls = 0, dampBalls = 0, landscapeBalls = 0;
 for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (const id of Object.keys(SEATS)) {
   for (let tier = 0; tier < 5; tier++) {
     if (!condOk(cond, tier)) continue;
@@ -143,6 +144,23 @@ for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (co
       check(dir, `${tag}: not travelling from the far half to the near half`);
     }
   }
+}
+// the landscape layout: a 16:9 court (720 x 405) with the taller, scaled chair rail; landing spot and judged line on screen
+{
+  const L = boot('2026-09-30T10:00:00', 3, null, { width: 1280, height: 720, landscape: true }), rail = Math.round(Math.max(10, 0.03 * L.H) * 1.6);
+  check(L.H === 405, `landscape court is ${L.W} x ${L.H}, expected 720 x 405`);
+  let n = 0;
+  for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (const id of Object.keys(SEATS)) for (let tier = 0; tier < 5; tier++) {
+    if (!condOk(cond, tier)) continue;
+    for (let i = 0; i < 40; i++) {
+      Object.assign(L.S, { seat: id, match, cond, tier, call: 1 }); L.newBall(); n++;
+      const b = L.ball, V = b.geo, tag = `landscape ${cond} ${match} ${id} tier ${tier} ball ${i}`, p = L.proj(b.xL, b.yL, 0);
+      check(p.d > 0 && p.sx >= 20 && p.sx <= L.W - 20 && p.sy >= 20 && p.sy <= L.H - rail - 4, `${tag}: landing spot off screen (${p.sx.toFixed(0)}, ${p.sy.toFixed(0)})`);
+      const l = V.axis === 'x' ? L.proj(V.line, b.yL, 0) : L.proj(b.xL, V.line, 0);
+      check(l.d > 0 && l.sx >= 0 && l.sx <= L.W && l.sy >= 0 && l.sy <= L.H - rail, `${tag}: judged line off screen (${l.sx.toFixed(0)}, ${l.sy.toFixed(0)})`);
+    }
+  }
+  landscapeBalls = n;
 }
 for (const m of MATCHES) check(alley[m] > 0, `no ${m} sideline ball landed in the doubles alley, so alley calls were not tested`);
 check(dampBalls > 0, 'no damp-grass balls were generated, so the longer mark was not tested');
@@ -346,4 +364,4 @@ if (failures.length) {
   for (const f of failures) console.error('  ' + f);
   process.exit(1);
 }
-console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seat views (${Object.keys(g.SEAT_CHOICES).length} seats), 5 tiers, singles and doubles, ${Object.keys(CONDITIONS).length} conditions (${dampBalls} damp-grass balls with 20% longer marks; alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); every ball from a plausible hitter (least net clearance ${(minClear * 1000).toFixed(1)} mm); daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily (${DAILY_FIXTURE.level}) matches the frozen fixture`);
+console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seat views (${Object.keys(g.SEAT_CHOICES).length} seats), 5 tiers, singles and doubles, ${Object.keys(CONDITIONS).length} conditions (${dampBalls} damp-grass balls with 20% longer marks; alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); every ball from a plausible hitter (least net clearance ${(minClear * 1000).toFixed(1)} mm); ${landscapeBalls} balls on screen in the 16:9 landscape court; daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily (${DAILY_FIXTURE.level}) matches the frozen fixture`);

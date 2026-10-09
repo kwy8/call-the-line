@@ -11,10 +11,10 @@
 // on disk) gets a hook just before the IIFE closes that exposes the current ball; the bot reads ball.isIn from it.
 // It calls correctly, except for one deliberate miss so the trailer shows an overrule and its ghost replay.
 import { execSync, spawn } from 'node:child_process';
-import { createServer } from 'node:http';
-import { readFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
-import { extname, join, normalize } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
+import { serveWww, withStateHook } from './serve-www.mjs';
 
 const PLAY_S = 25, FPS = 30, MISS_AT = 3;   // seconds of play after the first serve; output frame rate; the call to get wrong
 const OUT = 'dist/crazygames-assets';
@@ -25,32 +25,16 @@ const RUNS = [
 
 execSync('npm run build', { stdio: 'inherit' });
 
-// ---------- static server for www/, with the state hook in index.html ----------
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png',
-  '.webmanifest': 'application/manifest+json', '.txt': 'text/plain' };
-const END = /\}\)\(\);(\s*<\/script>(?![\s\S]*<\/script>))/;   // the close of the game IIFE, the last script on the page
-const index = readFileSync('www/index.html', 'utf8');
-if (!END.test(index)) throw new Error('www/index.html: game script no longer ends with "})();"');
-const hooked = index.replace(END, 'window.__ctl={ S, get ball(){ return ball; } };\n})();$1');
-const server = createServer((req, res) => {
-  let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  if (path.endsWith('/')) path += 'index.html';
-  const file = normalize(join('www', path));
-  if (!file.startsWith('www') || !existsSync(file) || statSync(file).isDirectory()) { res.writeHead(404).end(); return; }
-  res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' });
-  res.end(path === '/index.html' ? hooked : readFileSync(file));
-});
-await new Promise(r => server.listen(0, '127.0.0.1', r));
-const URL_ = `http://127.0.0.1:${server.address().port}/`;
+// ---------- local server for www/, with the state hook in index.html ----------
+const server = await serveWww(withStateHook);
+const URL_ = server.url;
 
 // ---------- play ----------
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 // Returns the number of calls made. onCourt() runs as the first tournament's Play is pressed.
 async function play(page, touch, onCourt) {
   const press = sel => touch ? page.locator(sel).tap() : page.locator(sel).click();
-  await page.locator('#go').waitFor();
-  await sleep(300); await press('#go');                         // intro: Play
-  await page.locator('#go').waitFor(); await sleep(500); await onCourt(); await press('#go');   // tournament card: Play
+  await page.locator('#go').waitFor(); await sleep(500); await onCourt(); await press('#go');   // a first visit opens on the tournament card: Play
   const t0 = Date.now(); let calls = 0;
   while (Date.now() - t0 < PLAY_S * 1000) {
     const state = await page.waitForFunction(() => {
