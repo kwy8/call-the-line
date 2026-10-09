@@ -324,12 +324,15 @@ const SEATS = SPORT.seats, SEAT_CHOICES = SPORT.choices, SURF = SPORT.surfaces, 
 const G = 9.81;
 
 // ---------- Tournament ladder ----------
+// near: where along the judged line a baseline or service-line ball lands (m from the judge's end, scaled to the line);
+// side: the same for a sideline ball, kept to what a plausible stroke can reach at the tier's speed (a fast ball can't
+// dip into mid-court over the net), so the origin sampler rarely has to move the landing spot
 const TIERS = [
-  {name:'Riverside Club Open',    short:'Club',  surf:SURF.clay,       calls:10, court:'#C6673C', out:'#B65C34', line:'#F3EDE4', stands:'#CFC7BB', speed:[20,25], near:[2.5,5.5],  margin:[0.02,0.12],  win:2.0},
-  {name:'Harbour Challenger',     short:'Chall.', surf:SURF.greenHard, calls:10, court:'#4C8A55', out:'#7C9F60', line:'#FFFFFF', stands:'#C9D0C4', speed:[24,29], near:[3.0,7.0],  margin:[0.012,0.09], win:1.7},
-  {name:'Big Apple Open',         short:'Open',  surf:SURF.blueHard,  calls:10, court:'#3E7CBB', out:'#4F8F5F', line:'#FFFFFF', stands:'#C4CDD6', speed:[28,34], near:[3.5,8.5],  margin:[0.008,0.06], win:1.45},
-  {name:'Kangaroo Open',          short:'Major', surf:SURF.blueHard,  calls:12, court:'#2E67A4', out:'#2B4F77', line:'#FFFFFF', stands:'#BEC7D1', speed:[32,40], near:[4.0,10.0], margin:[0.005,0.04], win:1.25},
-  {name:'The Lawn Classic Final', short:'Final', surf:SURF.grass,      calls:12, court:'#4E8C3E', out:'#5D9C4A', line:'#FFFFFF', stands:'#C8CFC2', speed:[36,44], near:[4.5,11.0], margin:[0.002,0.03], win:1.05},
+  {name:'Riverside Club Open',    short:'Club',  surf:SURF.clay,       calls:10, court:'#C6673C', out:'#B65C34', line:'#F3EDE4', stands:'#CFC7BB', speed:[20,25], near:[2.5,5.5],  side:[2.5,7.5], margin:[0.02,0.12],  win:2.0},
+  {name:'Harbour Challenger',     short:'Chall.', surf:SURF.greenHard, calls:10, court:'#4C8A55', out:'#7C9F60', line:'#FFFFFF', stands:'#C9D0C4', speed:[24,29], near:[3.0,7.0],  side:[3.0,7.0], margin:[0.012,0.09], win:1.7},
+  {name:'Big Apple Open',         short:'Open',  surf:SURF.blueHard,  calls:10, court:'#3E7CBB', out:'#4F8F5F', line:'#FFFFFF', stands:'#C4CDD6', speed:[28,34], near:[3.5,8.5],  side:[2.5,6.0], margin:[0.008,0.06], win:1.45},
+  {name:'Kangaroo Open',          short:'Major', surf:SURF.blueHard,  calls:12, court:'#2E67A4', out:'#2B4F77', line:'#FFFFFF', stands:'#BEC7D1', speed:[32,40], near:[4.0,10.0], side:[2.0,5.0], margin:[0.005,0.04], win:1.25},
+  {name:'The Lawn Classic Final', short:'Final', surf:SURF.grass,      calls:12, court:'#4E8C3E', out:'#5D9C4A', line:'#FFFFFF', stands:'#C8CFC2', speed:[36,44], near:[4.5,11.0], side:[1.5,4.5], margin:[0.002,0.03], win:1.05},
 ];
 // Daily challenge: DAILY_N balls seeded by the local calendar date, all at one player level (ball speeds, margins and
 // call window of one tournament), which the date also picks.
@@ -460,7 +463,7 @@ const CROWD = []; (function(){ let s=7; const r=()=>{ s=(s*16807)%2147483647; re
   for(let i=0;i<420;i++) CROWD.push({x:r(), row:Math.floor(r()*9), o:r(), c:cols[Math.floor(r()*cols.length)]}); })();
 
 // ---------- Scene ----------
-let ball=null, trail=[];
+let ball=null;
 function drawScene(t){
   const T=TIERS[S.tier];
   cx.setTransform(dpr,0,0,dpr,0,0);
@@ -491,8 +494,8 @@ function drawScene(t){
     if(C==='late'){ cx.fillStyle='rgba(0,0,0,.24)'; cx.beginPath(); cx.ellipse(sh.sx+r0*1.6,sh.sy,r0*2.8,r0*0.4,0,0,7); cx.fill(); }  // low sun: long shadow
     else { cx.fillStyle='rgba(0,0,0,.3)'; cx.beginPath(); cx.ellipse(sh.sx,sh.sy,r0*1.1,r0*0.45,0,0,7); cx.fill(); }
     const q=proj(ball.x,ball.y,ball.z), r=Math.max(1.6, FPX*BALL_R/Math.max(q.d,0.2));
-    if(trail.length>1){ // motion blur streak
-      const p=proj(trail[0].x,trail[0].y,trail[0].z);
+    if(ball.t-ball.from>0.004 && ball.squash===1){ // motion blur streak: the last STREAK seconds of travel, since this flight began
+      const s=ballAt(ball, Math.max(ball.from, ball.t-STREAK), false), p=proj(s.x,s.y,s.z);
       cx.strokeStyle='rgba(214,226,58,.35)'; cx.lineWidth=r*1.6; cx.lineCap='round';
       cx.beginPath(); cx.moveTo(p.sx,p.sy); cx.lineTo(q.sx,q.sy); cx.stroke();
     }
@@ -584,8 +587,11 @@ function newBall(){
   // the sideline, or across the court along the baseline/service line, scaled to fit inside its judged length). If no
   // plausible origin turns up for a spot (a fast ball can't dip into mid-court over the net), the spot moves deeper.
   const H=SPORT.hitter, Z=view==='svc' ? H.serve : H.ground;
-  let along=rnd(T.near[0],T.near[1]), shot=null, best=null;
+  const range = view==='side' ? T.side : T.near;
+  let along=rnd(range[0],range[1]), shot=null, best=null;
+  let spots=0;   // landing spots tried: more than 1 means no plausible origin reached the first
   for(let spot=0; spot<40 && !shot; spot++){
+    spots++;
     if(spot) along=rnd(Math.min(H.deepest,along), along);
     const at = view==='side' ? along : V.end-0.7*V.len/SINGLES_W*along;
     for(let i=0; i<H.tries && !shot; i++){
@@ -599,9 +605,9 @@ function newBall(){
   shot ||= best;   // never seen in scripts/check.mjs; keeps the game going if it ever happens
   const { xL, yL, vx, ux, uy, ext, xo, yo, zo, dip, fall } = shot;
   setPitch(fwd(xL,yL)+V.aim);  // centre the view just past the landing spot on the line
-  const spawn=Math.min(14, yo-yL);   // the ball comes into view at most 14 m before it lands
-  ball={ xL, yL, vx, vy, a:fall, dip, b:SPORT.ball.bounce*fall, t0:-spawn/v, xo, yo, zo, x:0,y:0,z:0, vis:true, ux, uy, ext, markL, cond:S.cond, seat:S.seat, view, geo:V, match:S.match, flip:!!seat.flip, m, isIn:m<0, squash:1 };
-  trail=[];
+  // the whole flight is shown, from the hitter's contact: t0 is that moment, in seconds before the bounce
+  ball={ xL, yL, vx, vy, a:fall, dip, b:SPORT.ball.bounce*fall, t0:-(yo-yL)/v, xo, yo, zo, x:0,y:0,z:0, t:0, from:0, vis:true, ux, uy, ext, markL, cond:S.cond, seat:S.seat, view, geo:V, match:S.match, flip:!!seat.flip, m, isIn:m<0, squash:1, squashed:false, spots };
+  ball.from=ball.t0;
 }
 // The shot from origin o = { xo, yo, zo, dip } at court speed v to the spot `at` along the judged line, `m` from it.
 // The landing point depends on the mark's half-extent across the line, which depends on the direction of travel, which
@@ -630,20 +636,25 @@ function netPass(o, xL, yL, v){
 }
 // The least height the ball must have over the net at x: net.centre at the centre line, rising linearly to net.post at the posts
 function netNeed(x){ const N=SPORT.hitter.net; return N.centre+(N.post-N.centre)*Math.min(1, Math.abs(x-CENTRE)/N.halfWidth); }
-const SQUASH = 0.045;  // seconds the flattened ball shows at the bounce
+const SQUASH = 0.045;  // seconds of wall time the flattened ball shows at the bounce
+const STREAK = 0.07;   // the motion streak covers this much of the ball's travel, whatever the frame rate
+// Where the ball is t seconds after the bounce (negative before it). It is held flat on its contact point for the
+// squash, then flies on. Without the hold the squash frame shows it where it has moved to: from the end of a baseline or
+// service line that is ~0.6 m a frame along the judged axis, and even on the sideline the ball drifts several cm
+// sideways, enough to flip a close call.
+function ballAt(b, t, held){
+  if(held) return { x:b.xL, y:b.yL, z:0 };
+  const tf = t>=SQUASH ? t-SQUASH : Math.min(t,0);
+  return { x:b.xL+b.vx*tf, y:b.yL+b.vy*tf, z: tf<0 ? -b.a*tf-0.5*b.dip*tf*tf : Math.max(0, b.b*tf-0.5*G*tf*tf) };
+}
+// Put the ball at time t. The squash shows while 0 <= t < SQUASH, and on the first frame past the bounce even if that
+// frame comes later (a slow frame rate), so it is never skipped.
 function stepBall(t){
-  const b=ball;
-  // The ball is held flat on its contact point for the squash, then flies on. Without the hold the squash frame shows it
-  // where it has moved to: from the end of a baseline or service line that is ~0.6 m a frame along the judged axis, and
-  // even on the sideline the ball drifts several cm sideways, enough to flip a close call.
-  const bounce = t>=0 && t<SQUASH;
-  if(bounce){ b.x=b.xL; b.y=b.yL; b.z=0; }
-  else { const tf = t>=SQUASH ? t-SQUASH : t;
-    b.x=b.xL+b.vx*tf; b.y=b.yL+b.vy*tf;
-    b.z = tf<0 ? -b.a*tf-0.5*b.dip*tf*tf : Math.max(0, b.b*tf-0.5*G*tf*tf); }
-  b.squash = bounce ? (b.cond==='damp' ? 1.55 : 1.35) : 1;
+  const b=ball, held = t>=0 && (t<SQUASH || !b.squashed);
+  if(held) b.squashed=true;
+  Object.assign(b, ballAt(b, t, held));
+  b.t=t; b.squash = held ? (b.cond==='damp' ? 1.55 : 1.35) : 1;
   b.vis = fwd(b.x,b.y)-fwd(cam.x,cam.y) > 0.4;
-  trail.push({x:b.x,y:b.y,z:b.z}); if(trail.length>4) trail.shift();
 }
 
 // ---------- Audio ----------
@@ -719,8 +730,14 @@ function chime(){ // two soft rising notes
 
 // ---------- Loop ----------
 let raf=0, tStart=0, callWindow=1, callT=0, resolved=false, eagleTimer=0;
+// The loop runs from the first serve until the player leaves for the menu: through the review and under cards, so the
+// scene stays live. The ball moves in flight, the call window and the review (it flies on after the call); while the
+// ghost replay plays, the replay draws instead.
 function loop(ts){
+  raf=requestAnimationFrame(loop);
+  if(replay) return;
   const t=(ts-tStart)/1000+ball.t0;
+  if(S.phase==='review'||S.phase==='end') stepBall(t);
   if(S.phase==='flight'||S.phase==='window'){
     stepBall(t);
     if(S.phase==='flight'&&t>=0){ S.phase='window'; callT=ts; if(!pockVoice) pock(); pockVoice=null; setButtons(true); }
@@ -731,7 +748,6 @@ function loop(ts){
     }
   }
   drawScene(ts/1000);
-  if(S.phase==='flight'||S.phase==='window') raf=requestAnimationFrame(loop);
 }
 function startPoint(){
   S.call++;
@@ -750,7 +766,6 @@ function setButtons(on){ $('btnIn').disabled=!on; $('btnOut').disabled=!on; $('r
 function makeCall(c){ if(S.phase!=='window'||resolved) return; resolve(c,(performance.now()-callT)/1000); }
 function resolve(call, elapsed){
   resolved=true; S.phase='review'; setButtons(false);
-  cancelAnimationFrame(raf); drawScene(performance.now()/1000);  // last frame; nothing moves under the cards
   const right = call!==null && (call==='in')===ball.isIn;
   if(right && coach && S.mode==='career'){ coach=false; try{ localStorage.setItem('ctl.coached','1'); }catch(e){} }
   if(S.mode==='practice'){ // no score, no strikes, no stats or badges: just the call and this session's tally
@@ -795,7 +810,7 @@ let replay=null;   // { t0, wall, mark, markAt, raf, done }
 function startReplay(done){
   stopReplay();
   replay={ t0:Math.max(ball.t0, -REPLAY.span), wall:null, mark:false, markAt:0, raf:0, done };
-  trail=[];
+  ball.from=replay.t0; ball.squashed=false;
   const frame=ts=>{
     if(!replay) return;
     if(replay.wall===null) replay.wall=ts;

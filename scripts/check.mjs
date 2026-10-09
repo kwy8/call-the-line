@@ -11,6 +11,8 @@
 //   - the ball comes from a plausible hitter: its flight, traced back with the game's own stepBall(), starts inside the
 //     groundstroke or serve zone (a serve from the half diagonally opposite its box), crosses the net between the posts
 //     with the required height, and travels from the far half towards the near half
+//   - under 5% of balls at any tier need their landing spot moved because no plausible stroke reached it
+// and that the render loop keeps running after a call, and the squash lasts 45 ms at any refresh rate (one frame at least),
 // that the leaderboard Worker's score bounds match the game's real scoring, that the ghost replay and practice mode
 // behave (see that section), and that the daily challenge gives identical balls, seat, match type and level for the same date, plays every ball
 // at its level's tier, and still produces the frozen DAILY_FIXTURE for 2026-10-01 below. Exits 1 on any failure.
@@ -88,6 +90,7 @@ const NET_Y = 11.885, FAR_BASE = 23.77, CENTRE = -4.115, EPS = 1e-6;
 const ZONES = { ground: { x: 6.0, y: [NET_Y + 3, FAR_BASE + 2.5], z: [0.6, 1.5] }, serve: { x: 4.0, y: [FAR_BASE + 0.3, FAR_BASE + 1.5], z: [2.4, 3.0] } };
 const POSTS = 6.4, netNeed = x => 0.95 + 0.15 * Math.min(1, Math.abs(x - CENTRE) / POSTS);
 const hitFail = { zone: 0, net: 0, posts: 0, direction: 0, any: 0 };
+const moved = [0, 0, 0, 0, 0], perTier = [0, 0, 0, 0, 0];   // balls whose first landing spot had no plausible origin
 let minClear = Infinity;
 const alley = { singles: 0, doubles: 0 };  // side-seat balls whose mark lies in the doubles alley
 let balls = 0, dampBalls = 0, landscapeBalls = 0;
@@ -138,6 +141,7 @@ for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (co
       if (!inZone) hitFail.zone++; if (!posts) hitFail.posts++; if (!overNet) hitFail.net++; if (!dir) hitFail.direction++;
       if (!inZone || !posts || !overNet || !dir) hitFail.any++;
       minClear = Math.min(minClear, n.z - netNeed(n.x));
+      perTier[tier]++; if (b.spots > 1) moved[tier]++;
       check(inZone, `${tag}: origin (${o.x.toFixed(2)}, ${o.y.toFixed(2)}, ${o.z.toFixed(2)}) outside the ${serve ? 'serve' : 'groundstroke'} zone`);
       check(posts, `${tag}: crosses the net at x = ${n.x.toFixed(2)}, outside the posts`);
       check(overNet, `${tag}: ${n.z.toFixed(3)} m over the net at x = ${n.x.toFixed(2)}, needs ${netNeed(n.x).toFixed(3)} m`);
@@ -162,6 +166,9 @@ for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (co
   }
   landscapeBalls = n;
 }
+// the landing ranges are within reach: the sampler moves a landing spot for under 5% of balls at every tier
+const movedPct = moved.map((m, t) => 100 * m / perTier[t]);
+movedPct.forEach((p, t) => check(p < 5, `tier ${t}: ${p.toFixed(1)}% of balls had their landing spot moved (no plausible origin reached it), expected under 5%`));
 for (const m of MATCHES) check(alley[m] > 0, `no ${m} sideline ball landed in the doubles alley, so alley calls were not tested`);
 check(dampBalls > 0, 'no damp-grass balls were generated, so the longer mark was not tested');
 // condition picking: damp grass is offered on grass and never anywhere else
@@ -269,6 +276,30 @@ check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1
   }
 }
 
+// ---------- live loop, and the squash at any refresh rate ----------
+{
+  const frames = [], g = boot('2026-10-01T12:00:00', 31, frames), { S } = g;
+  const tick = ts => { for (const f of frames.splice(0)) f(ts); };
+  const serve = () => { Object.assign(S, { mode: 'career', seat: 'sideline-right', match: 'singles', cond: 'day', tier: 4, call: 0 }); g.startPoint(); };   // tStart = 0
+  // the loop keeps running after a call: frames keep coming and the ball flies on under the review
+  serve();
+  let ts = 0; while (S.phase === 'flight') { ts += 16; tick(ts); }
+  const b = g.ball; S.phase = 'window'; g.resolve(b.isIn ? 'in' : 'out', 0.3);
+  const at = [b.x, b.y, b.z]; for (let i = 0; i < 10; i++) { ts += 16; tick(ts); }
+  check(frames.length > 0 && S.phase === 'review', 'the render loop must keep running through the review');
+  check(at.some((v, i) => Math.abs(v - [b.x, b.y, b.z][i]) > 1e-6), 'the ball must keep moving after the call');
+  // the squash shows for 45 ms of wall time at 60, 144 and 240 Hz, and for one frame at 15 Hz
+  // (15 Hz frames are 67 ms apart, so at some frame phases none falls inside the 45 ms: every phase is tried)
+  for (const hz of [15, 60, 144, 240]) for (let phase = 0; phase < 1000 / hz; phase += hz === 15 ? 5 : 1000) {
+    serve(); frames.length = 0; g.startPoint();
+    const dt = 1000 / hz, bounceMs = -g.ball.t0 * 1000; let n = 0, first = null, last = null;
+    for (let t = phase; t < bounceMs + 300; t += dt) { tick(t); if (g.ball.squash > 1) { n++; first ??= t; last = t; } }
+    const shown = n ? last - first + dt : 0;
+    if (hz === 15) check(n === 1, `${hz} Hz, frame phase ${phase} ms: the squash must show on exactly one frame, got ${n}`);
+    else check(Math.abs(shown - 45) <= dt, `${hz} Hz: the squash shows for ${shown.toFixed(1)} ms (${n} frames), expected 45 ms`);
+  }
+}
+
 // ---------- ghost replay and practice ----------
 {
   const frames = [], g = boot('2026-10-01T12:00:00', 21, frames), { S, els } = g;
@@ -364,4 +395,4 @@ if (failures.length) {
   for (const f of failures) console.error('  ' + f);
   process.exit(1);
 }
-console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seat views (${Object.keys(g.SEAT_CHOICES).length} seats), 5 tiers, singles and doubles, ${Object.keys(CONDITIONS).length} conditions (${dampBalls} damp-grass balls with 20% longer marks; alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); every ball from a plausible hitter (least net clearance ${(minClear * 1000).toFixed(1)} mm); ${landscapeBalls} balls on screen in the 16:9 landscape court; daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily (${DAILY_FIXTURE.level}) matches the frozen fixture`);
+console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seat views (${Object.keys(g.SEAT_CHOICES).length} seats), 5 tiers, singles and doubles, ${Object.keys(CONDITIONS).length} conditions (${dampBalls} damp-grass balls with 20% longer marks; alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); every ball from a plausible hitter (least net clearance ${(minClear * 1000).toFixed(1)} mm; landing spot moved for ${movedPct.map(p => p.toFixed(1) + '%').join('/')} by tier); ${landscapeBalls} balls on screen in the 16:9 landscape court; daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily (${DAILY_FIXTURE.level}) matches the frozen fixture`);
