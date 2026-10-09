@@ -147,6 +147,11 @@ footer .legal a{color:inherit;text-decoration:underline;display:inline-block;min
 @media (max-width:359px){ .eagle{grid-template-columns:1fr;justify-items:center;text-align:center} }
 @media (prefers-reduced-motion:reduce){ .call{transition:none} }
 .menu-legal{display:none}
+/* pre-play cards over the court playing itself (attract mode): the court dimmed ~25%, the card on its own panel */
+.overlay.attract{background:rgba(10,18,14,.25)}
+.overlay.attract .card{background:rgba(255,255,255,.96);border-radius:12px;padding:16px 18px;box-shadow:0 6px 24px rgba(10,18,14,.28)}
+.card-logo svg{display:block;height:40px;width:auto}
+.row.minor{gap:2px;color:var(--muted)} .row.minor .linkbtn{font-size:14px;padding:8px 8px;margin:-6px 0}
 .menu-legal a{color:inherit}
 /* Landscape (desktop, the CrazyGames iframe from 800x450 up, phones on their side): no column. The court fills the
    height above a 56 px strip with In/Out and the timer, at most 16:9 wide, centred on the page background. HUD, tools
@@ -178,6 +183,7 @@ footer .legal a{color:inherit;text-decoration:underline;display:inline-block;min
   .toast{font-size:clamp(34px,7vh,64px)} .toast small{font-size:clamp(17px,3vh,26px)}
   .overlay{inset:0 0 -56px 0;z-index:3;padding:52px 12px 8px}
   .menu-legal{display:block}
+  .stage:has(.overlay.attract:not([hidden])) .tourney{visibility:hidden}   /* the pre-play card names the event itself */
 }
 /* short landscape (the 800x450 iframe up to about 720p): compact cards so every one fits without scrolling */
 @media (orientation:landscape) and (min-width:481px) and (max-height:760px){
@@ -192,7 +198,9 @@ footer .legal a{color:inherit;text-decoration:underline;display:inline-block;min
   .eagle{grid-template-columns:130px 1fr;padding:8px} .eagle canvas{width:130px;height:130px} .eagle .verdict{font-size:32px}
   .badges{max-width:360px;grid-template-columns:repeat(5,1fr)} .badge-cell svg{width:44px;height:44px}
   .lb{font-size:12px;line-height:1.25}
-  .picker{width:110px;height:176px}
+  .picker{width:100px;height:160px} .levels button{min-height:34px;padding:6px 12px}
+  .overlay.attract .card{padding:8px 14px 10px}
+  .overlay.attract{align-items:flex-start} .overlay.attract .card{margin:0 0 auto}   /* the card at the top, the court's mark and verdict below it */
 }
 </style>
 
@@ -487,7 +495,7 @@ function drawScene(t){
   cx.fillStyle='rgba(255,255,255,.55)'; cx.font=`800 ${label(7,0.024)}px "Barlow Condensed", sans-serif`; cx.textAlign='left';
   for(let x=-20;x<W;x+=120) cx.fillText('CALL THE LINE', x, hz-1.5);
   drawCourt(T, hz, ball ? ball.match : S.match, C);
-  if(replay && replay.mark) drawMark(ball);   // ghost replay: the bounce mark on the court
+  if((replay && replay.mark) || (attract && attract.mark)) drawMark(ball);   // ghost replay or attract mode: the bounce mark
   // ball
   if(ball && ball.vis){
     const sh=proj(ball.x,ball.y,0), r0=FPX*BALL_R/Math.max(sh.d,0.2);
@@ -520,6 +528,7 @@ function drawScene(t){
     cx.fillStyle='#D6E23A'; cx.font=`800 ${f}px "Barlow Condensed", sans-serif`; cx.textAlign='center'; cx.fillText('REPLAY · ¼ SPEED', x+w/2, 10+h*0.68);
   }
   if(coachOn()) drawCoach();
+  if(attract && attract.mark) drawVerdict(ball);
 }
 // Canvas text size: px in the column layouts; in landscape a share of the court's height, never smaller than px
 function label(px, share){ return land ? Math.max(px, Math.round(share*H*10)/10) : px; }
@@ -736,6 +745,7 @@ let raf=0, tStart=0, callWindow=1, callT=0, resolved=false, eagleTimer=0;
 function loop(ts){
   raf=requestAnimationFrame(loop);
   if(replay) return;
+  if(attract){ attractFrame(ts); return; }
   const t=(ts-tStart)/1000+ball.t0;
   if(S.phase==='review'||S.phase==='end') stepBall(t);
   if(S.phase==='flight'||S.phase==='window'){
@@ -749,12 +759,45 @@ function loop(ts){
   }
   drawScene(ts/1000);
 }
+// ---------- Attract mode ----------
+// Behind the menu and the other pre-play cards the court plays itself: every ~2.5 s a ball from a random seat, match
+// type and condition at the current level, through the same newBall()/stepBall() as play, then its mark and verdict on
+// the court. No sound, no score, no stats. The seat, match and condition the game had are put back after each ball, so
+// a tournament or daily that is waiting to start is untouched; the next real serve sets the camera again.
+const ATTRACT = { every:2.5, after:1.4, low:0.8 };   // s between balls; s the verdict stays after the bounce at least; where the mark sits, as a share of the court's height (low, clear of the card)
+let attract=null;   // { start, next, mark }
+function startAttract(){ attract ||= { start:0, next:0, mark:false }; cancelAnimationFrame(raf); raf=requestAnimationFrame(loop); }
+function stopAttract(){ attract=null; }
+function attractFrame(ts){
+  if(ts>=attract.next){
+    const keep={ seat:S.seat, match:S.match, cond:S.cond }, views=Object.keys(SEATS);
+    S.seat=views[Math.floor(Math.random()*views.length)]; S.match=Math.random()<0.5?'singles':'doubles'; S.cond=pickCond(S.tier, Math.random());
+    newBall(); Object.assign(S, keep);
+    // look further down the court until the landing spot sits low in the picture
+    for(let f=fwd(ball.xL,ball.yL)+ball.geo.aim, k=0; k<120 && proj(ball.xL,ball.yL,0).sy<H*ATTRACT.low; k++) setPitch(f+=0.25);
+    attract.start=ts; attract.mark=false; attract.next=ts+Math.max(ATTRACT.every, -ball.t0+ATTRACT.after)*1000;
+  }
+  const t=(ts-attract.start)/1000+ball.t0;
+  stepBall(t); if(t>=0) attract.mark=true;
+  drawScene(ts/1000);
+}
+// The verdict over the mark, in the hoarding's style: "OUT · BY 12 MM"
+function drawVerdict(b){
+  const v=verdict(b), text=`${v.word} · ${v.clearlyIn?'well inside':`by ${v.mm} mm`}`.toUpperCase();
+  const f=label(13,0.04), p=proj(b.xL,b.yL,0);
+  cx.font=`800 ${f}px "Barlow Condensed", sans-serif`;
+  const w=(cx.measureText?.(text)?.width||f*8)+f*1.4, h=f*1.7;
+  const x=Math.min(W-w-6, Math.max(6, p.sx-w/2)), y=Math.max(6, p.sy-h-f*1.2);
+  cx.fillStyle='#1F3A5F'; cx.fillRect(x,y,w,h);
+  cx.fillStyle=b.isIn?'#7FD08F':'#FF8A78'; cx.fillRect(x,y+h-3,w,3);   // in green, out red, along the bottom edge
+  cx.fillStyle='#FFFFFF'; cx.textAlign='center'; cx.fillText(text, x+w/2, y+h*0.68);
+}
 function startPoint(){
   S.call++;
   if(S.mode==='daily'){ S.tier=DAILY_LEVELS[S.daily.level].tier; $('tSw').style.background=TIERS[S.tier].court; }
   const T=TIERS[S.tier], practice=S.mode==='practice';
   $('tProg').textContent = practice ? `${T.surf} · Practice · ball ${S.call}` : `${T.surf} · ${cap(S.match)} · call ${S.call} of ${S.mode==='daily'?DAILY_N:T.calls}`;
-  newBall(); callWindow=practice ? Infinity : T.win; resolved=false;   // practice: no timer
+  stopAttract(); newBall(); callWindow=practice ? Infinity : T.win; resolved=false;   // practice: no timer
   CG.start();
   $('timerTrack').style.visibility = practice ? 'hidden' : '';
   $('timer').style.width='100%'; setButtons(false); hideOverlay(); toast('');
@@ -886,7 +929,7 @@ function practiceCard(){
     <div class="levels" role="radiogroup" aria-label="Level">${DAILY_LEVELS.map((l,i)=>`<button type="button" data-level="${i}" aria-pressed="${i===practiceLevel}">${l.name}</button>`).join('')}</div>
     <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
     <span class="hint">No timer, no score. Nothing here counts towards your stats.</span>
-  `);
+  `, { attract:true });
   const pick=id=>{ practiceSeat=id; practiceCard(); const c=document.querySelector(`#picker [data-seat="${id}"]`); if(c) c.focus(); };
   // a tap picks the nearest chair, so chairs that sit close together are still easy to hit
   $('picker').addEventListener('click', e=>{
@@ -911,10 +954,14 @@ function practiceStart(){
 }
 
 // ---------- Eagle-Eye review ----------
+// The verdict on a ball: In, Out, or Long (out past a baseline or service line), and by how much
+function verdict(b){
+  return { word: b.isIn ? CALL.in : b.geo.axis==='y' ? CALL.long : CALL.out, mm: Math.round(Math.abs(b.m)*1000),
+           clearlyIn: b.m+2*b.ext < -LINE_W };   // clearlyIn: the whole mark is inside the line's inner edge
+}
 function showEagle(right, call, elapsed){
-  const T=TIERS[S.tier], b=ball, mm=Math.round(Math.abs(b.m)*1000);
-  const clearlyIn = b.m+2*b.ext < -LINE_W;  // the whole mark is inside the line's inner edge
-  const by = clearlyIn ? 'Well inside' : (b.isIn?`${CALL.in} by ${mm} mm`:`${b.geo.axis==='y'?CALL.long:CALL.out} by ${mm} mm`);
+  const T=TIERS[S.tier], b=ball, v=verdict(b);
+  const by = v.clearlyIn ? 'Well inside' : `${v.word} by ${v.mm} mm`;
   const dist = b.view==='side' ? b.yL : Math.hypot(b.xL-cam.x, b.yL-cam.y);
   const yours = call===null ? `No call in ${callWindow} s` : `Your call: <b>${CALL[call].toUpperCase()}</b> in ${elapsed.toFixed(2)} s`;
   const last=S.call>=T.calls, sacked=S.over>=3;
@@ -1082,22 +1129,22 @@ const RULES = `<div class="rules">
   <b>2</b><span>If any part of the ball's mark touches the line, it's ${CALL.in.toLowerCase()}.</span>
   <b>3</b><span>Three overrules in one tournament and the cameras take your chair.</span>
 </div>`;
-// The menu (the start screen for returning players on the site): career, daily, practice, rules, stats
+// The menu (the start screen for returning players on the site): the logo, then career, daily, practice, rules, stats
 function menu(){
   S.phase='idle';
   const dr=dailyLoad();
   card(`
-    <h2>You think it's easy being a line judge?</h2>
+    <div class="card-logo">${document.querySelector('.brand .logo').outerHTML}</div>
     <div class="start">
       <button class="btn big" id="go">Play</button>
-      <div class="row"><button class="btn ghost small" id="daily">Daily challenge${dr?` · ${dr.results.filter(Boolean).length}/${DAILY_N}`:''}</button><button class="btn ghost small" id="practice">Practice</button></div>
-      <div class="row"><button class="linkbtn" id="rulesLink" type="button">Rules</button><button class="linkbtn" id="statsLink" type="button">Stats</button></div>
+      <div class="row"><button class="btn ghost small" id="daily">Daily${dr?` · ${dr.results.filter(Boolean).length}/${DAILY_N}`:''}</button><button class="btn ghost small" id="practice">Practice</button></div>
+      <div class="row minor"><button class="linkbtn" id="rulesLink" type="button">Rules</button>·<button class="linkbtn" id="statsLink" type="button">Stats</button></div>
     </div>
     ${S.best?`<span class="hint">Best: ${S.best.toLocaleString()} pts · ${TIERS[Math.min(S.bestTier,TIERS.length-1)].name}</span>`:''}
     ${(n=>n?`<span class="hint"><b>${streakText(n)}</b></span>`:'')(streakNow(streakLoad(), dailyToday().key))}
     <span class="hint installHint" hidden></span>
     ${PORTAL?'':'<span class="hint menu-legal"><a href="/privacy.html">Privacy</a> · <a href="/privacy.html#impressum">Contact</a> · © 2026 Call the Line</span>'}
-  `);
+  `, { attract:true });
   $('rulesLink').onclick=rulesCard; $('statsLink').onclick=statsCard;
   $('homeWrap').hidden=true;
   $('go').onclick=careerStart;
@@ -1109,8 +1156,9 @@ function careerStart(){ S.mode='career'; S.tier=0; S.score=0; S.streak=0; S.resc
 function sideCard(html){ // shows html; its #go button puts back exactly the card that was showing
   const c=$('card'), saved=document.createDocumentFragment();
   while(c.firstChild) saved.appendChild(c.firstChild);
+  const on=$('overlay').classList.contains('attract');
   const back=()=>{ c.replaceChildren(saved); $('overlay').hidden=false; $('nx')?.focus(); };
-  card(html);
+  card(html, { attract:on });
   $('go').onclick=back;
 }
 // Top-down singles court, near baseline on the left; the judged line and the chair are highlighted.
@@ -1179,7 +1227,7 @@ function startTournament(){
     <div class="chips"><span class="chip"><b>${T.surf}</b></span><span class="chip"><b>${T.calls}</b> calls</span><span class="chip">up to <b>${Math.round(T.speed[1]*3.6)}</b> km/h</span><span class="chip"><b>${T.win}</b> s to call</span><span class="chip"><b>${CONDITIONS[cond].name}</b></span></div>
     ${seatDiagram(seat, match)}
     <div class="row"><button class="btn" id="go">Play</button></div>
-  `);
+  `, { attract:true });
   $('go').onclick=startPoint;
   previewSeat(seat, match, cond);
 }
@@ -1268,7 +1316,7 @@ function dailyIntro(){
     ${seatDiagram(seat, match)}
     <div class="row"><button class="btn" id="go">Start</button><button class="btn ghost" id="back">Back</button></div>
     <span class="hint"><button class="linkbtn" id="lb" type="button">Leaderboard</button>${player() ? ' · <span class="lbline" data-short="1"></span>' : ''}</span>
-  `);
+  `, { attract:true });
   nameLine(); yesterdayLine(key, n);
   $('go').onclick=()=> player() ? dailyStart() : nameCard(dailyStart);
   $('lb').onclick=()=>leaderboardCard(key);
@@ -1519,7 +1567,11 @@ function hud(){
   [...$('strikes').children].forEach((i,k)=>i.classList.toggle('hit',k<S.over));
   $('strikes').parentElement.hidden = S.mode==='daily' || practice;
 }
-function card(html){ $('card').innerHTML=html; $('overlay').hidden=false; $('homeWrap').hidden=false; }
+// A card over the court. attract: a pre-play card, over the court playing itself (attract mode), dimmed
+function card(html, { attract:on=false }={}){
+  $('card').innerHTML=html; $('overlay').hidden=false; $('homeWrap').hidden=false;
+  $('overlay').classList.toggle('attract', on); on ? startAttract() : stopAttract();
+}
 function hideOverlay(){ $('overlay').hidden=true; }
 
 // ---------- Input ----------
