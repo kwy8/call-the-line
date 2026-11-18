@@ -7,12 +7,14 @@
 //   - the margin the game reports equals the measured gap between the mark and the line's outer edge
 //   - balls in the doubles alley are out in a singles match and in in a doubles match (and both cases occur)
 //   - a baseline or service-line ball lands inside the judged length without touching a sideline
-//   - the landing spot and the judged line are on screen, and the judge's hands stay clear below the landing spot
+//   - the landing spot and the judged line are on screen, and the judge's hands stay clear below the landing spot and
+//     inside the bottom 14% of the court area
 //   - the ball comes from a plausible hitter: its flight, traced back with the game's own stepBall(), starts inside the
 //     groundstroke or serve zone (a serve from the half diagonally opposite its box), crosses the net between the posts
 //     with the required height, and travels from the far half towards the near half
 //   - under 5% of balls at any tier need their landing spot moved because no plausible stroke reached it
-// and that the render loop keeps running after a call, and the squash lasts 45 ms at any refresh rate (one frame at least),
+// and that the player sprite frames cut at the right moments of the ball's clock, with the right pre-roll (groundstroke
+// and serve), that the render loop keeps running after a call, and the squash lasts 45 ms at any refresh rate (one frame at least),
 // that the leaderboard Worker's score bounds match the game's real scoring, that the ghost replay and practice mode
 // behave (see that section), and that the daily challenge gives identical balls, seat, match type and level for the same date, plays every ball
 // at its level's tier, and still produces the frozen DAILY_FIXTURE for 2026-10-01 below. Exits 1 on any failure.
@@ -43,7 +45,7 @@ const src = match[1].replace(END, `window.__ctl={ S, newBall, startPoint, resolv
   get ball(){ return ball; }, get W(){ return W; }, get H(){ return H; },
   LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, DAILY_LEVELS, TIERS, CONDITIONS, pickCond, stepBall,
   ST, nextStep, practiceStart, handsTop, finishReplay, landDistance, pickSeat, SEAT_CHOICES,
-  shiftKey, streakAfterPlaying, streakNow, streakLoad, shareText, get replay(){ return replay; }, get PR(){ return PR; } };})();`);
+  shiftKey, streakAfterPlaying, streakNow, streakLoad, shareText, frameAt, preRoll, get replay(){ return replay; }, get PR(){ return PR; } };})();`);
 
 // A seeded Math.random so every run checks the same balls and a failure can be reproduced.
 function mulberry32(a) { return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -129,6 +131,7 @@ for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (co
       const p = g.proj(b.xL, b.yL, 0);
       check(p.d > 0 && p.sx >= 20 && p.sx <= g.W - 20 && p.sy >= 20 && p.sy <= g.H - 20, `${tag}: landing spot off screen (${p.sx.toFixed(0)}, ${p.sy.toFixed(0)})`);
       check(g.handsTop(g.H - 16) >= p.sy + 0.05 * g.H - 1e-9, `${tag}: the judge's hands would reach within 5% of the court's height of the landing spot`);
+      check(g.handsTop(g.H - 16) >= 0.86 * (g.H - 16) - 1e-9, `${tag}: the judge's hands would rise above the bottom 14% of the court area`);
       const l = V.axis === 'x' ? g.proj(V.line, b.yL, 0) : g.proj(b.xL, V.line, 0);
       check(l.d > 0 && l.sx >= 0 && l.sx <= g.W && l.sy >= 0 && l.sy <= g.H - 16, `${tag}: judged line off screen (${l.sx.toFixed(0)}, ${l.sy.toFixed(0)})`);
       // the hitter: where the drawn flight starts (the origin; a ball without one starts where it comes into view) and
@@ -162,6 +165,7 @@ for (const cond of Object.keys(CONDITIONS)) for (const match of MATCHES) for (co
       const b = L.ball, V = b.geo, tag = `landscape ${cond} ${match} ${id} tier ${tier} ball ${i}`, p = L.proj(b.xL, b.yL, 0);
       check(p.d > 0 && p.sx >= 20 && p.sx <= L.W - 20 && p.sy >= 20 && p.sy <= L.H - rail - 4, `${tag}: landing spot off screen (${p.sx.toFixed(0)}, ${p.sy.toFixed(0)})`);
       check(L.handsTop(L.H - rail) >= p.sy + 0.05 * L.H - 1e-9, `${tag}: the judge's hands would reach within 5% of the court's height of the landing spot`);
+      check(L.handsTop(L.H - rail) >= 0.86 * (L.H - rail) - 1e-9, `${tag}: the judge's hands would rise above the bottom 14% of the court area`);
       const l = V.axis === 'x' ? L.proj(V.line, b.yL, 0) : L.proj(b.xL, V.line, 0);
       check(l.d > 0 && l.sx >= 0 && l.sx <= L.W && l.sy >= 0 && l.sy <= L.H - rail, `${tag}: judged line off screen (${l.sx.toFixed(0)}, ${l.sy.toFixed(0)})`);
     }
@@ -302,6 +306,20 @@ check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1
   }
 }
 
+// ---------- player sprite frames, by the ball's clock (tau: s since the hit) ----------
+{
+  // the spec, written out here: [tau, frame] samples either side of every cut, and the pre-roll before the hit
+  const SPEC = {
+    ground: { seat: 'sideline-right', lead: 0.6, at: [[-0.6,'ready'],[-0.451,'ready'],[-0.45,'backswing'],[-0.091,'backswing'],[-0.09,'contact'],[0.089,'contact'],[0.09,'follow'],[0.449,'follow'],[0.45,'ready'],[2,'ready']] },
+    serve: { seat: 'service-line-right', lead: 0.9, at: [[-1,'ready'],[-0.9,'toss'],[-0.501,'toss'],[-0.5,'trophy'],[-0.121,'trophy'],[-0.12,'serve'],[0.099,'serve'],[0.1,'follow'],[0.449,'follow'],[0.45,'ready']] },
+  };
+  for (const [kind, sp] of Object.entries(SPEC)) {
+    Object.assign(S, { seat: sp.seat, match: 'singles', cond: 'day', tier: 2, call: 1 }); g.newBall();
+    const b = g.ball;
+    check(Math.abs(g.preRoll(b) - sp.lead) < 1e-12, `${kind}: pre-roll ${g.preRoll(b)} s, expected ${sp.lead} s`);
+    for (const [tau, want] of sp.at) { const got = g.frameAt(b, tau); check(got === want, `${kind}: frame at tau ${tau} s is ${got}, expected ${want}`); }
+  }
+}
 // ---------- ghost replay and practice ----------
 {
   const frames = [], g = boot('2026-10-01T12:00:00', 21, frames), { S, els } = g;

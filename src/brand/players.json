@@ -1,0 +1,50 @@
+{
+ "frameWidth": 400,
+ "frameHeight": 560,
+ "anchorX": 200,
+ "anchorY": 548,
+ "standingHeightPx": 420,
+ "standingHeightM": 1.85,
+ "frames": {
+  "ready": {
+   "index": 0,
+   "x": 0,
+   "heightPx": 390
+  },
+  "backswing": {
+   "index": 1,
+   "x": 400,
+   "heightPx": 393
+  },
+  "contact": {
+   "index": 2,
+   "x": 800,
+   "heightPx": 393
+  },
+  "follow": {
+   "index": 3,
+   "x": 1200,
+   "heightPx": 413
+  },
+  "toss": {
+   "index": 4,
+   "x": 1600,
+   "heightPx": 479
+  },
+  "trophy": {
+   "index": 5,
+   "x": 2000,
+   "heightPx": 467
+  },
+  "serve": {
+   "index": 6,
+   "x": 2400,
+   "heightPx": 522
+  },
+  "split": {
+   "index": 7,
+   "x": 2800,
+   "heightPx": 390
+  }
+ }
+}
