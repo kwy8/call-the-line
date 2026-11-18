@@ -428,8 +428,7 @@ try{ S.best=+localStorage.getItem('ctl.best')||0; S.bestTier=+localStorage.getIt
 
 const $ = id=>document.getElementById(id);
 const cv = $('court'), cx = cv.getContext('2d');
-const FPX0 = 1400;   // focal length in logical px; the sideline camera move (see Camera move) narrows it for WIDE
-let W = 720, H = 480, FPX = FPX0;   // logical size follows the displayed box; focal length scales with width
+let W = 720, H = 480, FPX = 1400;   // logical size follows the displayed box; focal length scales with width
 let dpr = 1, booted = false;   // dpr: backing-store pixels per logical pixel
 // The landscape layout (see the CSS): the court fills the height, and its labels scale with it
 const LANDSCAPE = '(orientation:landscape) and (min-width:481px)';
@@ -437,7 +436,7 @@ let land = false;
 function fit(){
   const r=cv.getBoundingClientRect(); const cw=r.width||720, ch=r.height||480;
   land = !!window.matchMedia?.(LANDSCAPE).matches;
-  W=720; H=Math.round(720*ch/cw); FPX=FPX0;
+  W=720; H=Math.round(720*ch/cw); FPX=1400;
   dpr=Math.min(2,window.devicePixelRatio||1)*cw/W;   // backing store = displayed size x devicePixelRatio (at most 2)
   cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
   if(booted && S.phase!=='flight' && S.phase!=='window') drawScene(performance.now()/1000);
@@ -476,7 +475,6 @@ let ball=null;
 function drawScene(t){
   const T=TIERS[S.tier];
   cx.setTransform(dpr,0,0,dpr,0,0);
-  if(ball) applyCam(ball);   // the sideline camera move, by the ball's clock
   const hz = proj(cam.x+400*Math.sin(cam.yaw), cam.y+400*Math.cos(cam.yaw), 0).sy;
   // sky
   const C = ball ? ball.cond : S.cond, night = C==='night';
@@ -485,16 +483,13 @@ function drawScene(t){
   cx.fillStyle=sky; cx.fillRect(0,0,W,hz);
   cx.fillStyle=night?shade(T.out,0.55):T.out; cx.fillRect(0,hz,W,H-hz);  // ground to the horizon, so no earlier frame shows through
   // stands: 9 seat rows rising away
-  // where the camera moves (sideline seats in landscape), the stands carry on up to the top of the picture, so no sky
-  // shows above them in the WIDE framing; elsewhere, 9 rows as always
-  const top=hz-78, extra = ball && moves(ball) ? Math.max(0, Math.ceil(top/8)) : 0, sTop=top-extra*8, sH=78+extra*8;
-  for(let r=-extra;r<9;r++){ const y=top+r*8; cx.fillStyle=(r%2+2)%2?shade(T.stands,0.96):T.stands; cx.fillRect(0,y,W,8); }
-  cx.fillStyle='rgba(0,0,0,.05)'; cx.fillRect(0,sTop,W,sH);
-  for(let k=0; k<=Math.ceil(extra/9); k++) for(const p of CROWD){ const row=p.row-9*k; if(row<-extra) continue;
-    const y=top+3+row*8; cx.fillStyle=p.c; cx.globalAlpha=0.55+p.o*0.4; cx.beginPath(); cx.arc(p.x*W,y,2.3,0,7); cx.fill(); }
+  const top=hz-78;
+  for(let r=0;r<9;r++){ const y=top+r*8; cx.fillStyle=r%2?shade(T.stands,0.96):T.stands; cx.fillRect(0,y,W,8); }
+  cx.fillStyle='rgba(0,0,0,.05)'; cx.fillRect(0,top,W,78);
+  for(const p of CROWD){ const y=top+3+p.row*8; cx.fillStyle=p.c; cx.globalAlpha=0.55+p.o*0.4; cx.beginPath(); cx.arc(p.x*W,y,2.3,0,7); cx.fill(); }
   cx.globalAlpha=1;
-  if(night){ cx.fillStyle='rgba(6,12,24,.55)'; cx.fillRect(0,sTop,W,sH); }      // stands in the dark beyond the lights
-  if(C==='late'){ cx.fillStyle='rgba(150,90,30,.07)'; cx.fillRect(0,sTop,W,sH); } // warm low sun
+  if(night){ cx.fillStyle='rgba(6,12,24,.55)'; cx.fillRect(0,top,W,78); }      // stands in the dark beyond the lights
+  if(C==='late'){ cx.fillStyle='rgba(150,90,30,.07)'; cx.fillRect(0,top,W,78); } // warm low sun
   // hoarding
   cx.fillStyle='#1F3A5F'; cx.fillRect(0,hz-8,W,9);
   cx.fillStyle='rgba(255,255,255,.55)'; cx.font=`800 ${label(7,0.024)}px "Barlow Condensed", sans-serif`; cx.textAlign='left';
@@ -503,7 +498,7 @@ function drawScene(t){
   // the players stand behind the net, so they go in before it and it covers them; they stand in front of the hoarding
   // and stands, but are clipped to the stands' top and the chair rail, so they never spill into the sky or the HUD
   drawCourt(T, hz, ball ? ball.match : S.match, C, ()=>{ if(!ball) return;
-    cx.save(); cx.beginPath(); cx.rect(0, sTop, W, H-rail-sTop); cx.clip(); drawHitter(ball); drawPartner(ball); cx.restore();
+    cx.save(); cx.beginPath(); cx.rect(0, top, W, H-rail-top); cx.clip(); drawHitter(ball); drawPartner(ball); cx.restore();
     drawToss(ball); });
   if((replay && replay.mark) || (attract && attract.mark)) drawMark(ball);   // ghost replay or attract mode: the bounce mark
   // ball
@@ -624,9 +619,9 @@ function newBall(){
   }
   shot ||= best;   // never seen in scripts/check.mjs; keeps the game going if it ever happens
   const { xL, yL, vx, ux, uy, ext, xo, yo, zo, dip, fall } = shot;
-  FPX=FPX0; setPitch(fwd(xL,yL)+V.aim);  // TIGHT: centre the view just past the landing spot on the line
+  setPitch(fwd(xL,yL)+V.aim);  // centre the view just past the landing spot on the line
   // the whole flight is shown, from the hitter's contact: t0 is that moment, in seconds before the bounce
-  ball={ xL, yL, vx, vy, a:fall, dip, b:SPORT.ball.bounce*fall, t0:-(yo-yL)/v, tight:cam.pitch, xo, yo, zo, x:0,y:0,z:0, t:0, from:0, vis:true, ux, uy, ext, markL, cond:S.cond, seat:S.seat, view, geo:V, match:S.match, flip:!!seat.flip, m, isIn:m<0, squash:1, squashed:false, spots };
+  ball={ xL, yL, vx, vy, a:fall, dip, b:SPORT.ball.bounce*fall, t0:-(yo-yL)/v, xo, yo, zo, x:0,y:0,z:0, t:0, from:0, vis:true, ux, uy, ext, markL, cond:S.cond, seat:S.seat, view, geo:V, match:S.match, flip:!!seat.flip, m, isIn:m<0, squash:1, squashed:false, spots };
   ball.from=ball.t0;
 }
 // The shot from origin o = { xo, yo, zo, dip } at court speed v to the spot `at` along the judged line, `m` from it.
@@ -851,13 +846,11 @@ const ease = k => k<=0 ? 0 : k>=1 ? 1 : k*k*(3-2*k);
 function drawPartner(b){
   if(b.match!=='doubles') return;
   const half=b.xo>CENTRE ? -1 : 1, x0=CENTRE+half*PARTNER.half, dir=Math.sign(b.xL-x0)||1, y=NET_Y+PARTNER.net;
-  if(b.mate===undefined){   // decided once per ball, in the TIGHT framing, from where it stands at the start and the end of its move
-    const keep=[FPX,cam.pitch]; FPX=FPX0; cam.pitch=b.tight;
+  if(b.mate===undefined){   // decided once per ball, from where it stands at the start and the end of its move
     const box=x=>{ const a=proj(x,y,0), s=FPX/a.d; return a.d<3 ? null : [a.sx-0.6*s, a.sy-1.9*s, a.sx+0.6*s, a.sy]; };
     const A=box(x0), B=box(x0+dir*PARTNER.step), L=proj(b.xL,b.yL,0), lz=[L.sx-50, L.sy-40, L.sx+50, L.sy+20];
     const meets=(r,q)=>r[0]<q[2] && r[2]>q[0] && r[1]<q[3] && r[3]>q[1], screen=[0,0,W,H];
     b.mate = !!(A && B && (meets(A,screen)||meets(B,screen)) && !meets(A,lz) && !meets(B,lz));
-    [FPX,cam.pitch]=keep;
   }
   if(!b.mate) return;
   const tau=b.t-b.t0, k=(tau-PARTNER.move[0])/(PARTNER.move[1]-PARTNER.move[0]), p=ease(k), x=x0+dir*PARTNER.step*p;
@@ -908,30 +901,6 @@ function drawHands(now, bottom){
   cx.restore();
 }
 
-// ---------- Camera move (sideline seats, landscape) ----------
-// TIGHT is the sideline camera newBall() sets: the landing spot framed for the call. WIDE has a 1.5x wider field of view,
-// pitched 2.5 degrees up, so the far hitter is in the picture for the wind-up. The path runs on the ball's clock (tau,
-// s since the hit), like the figures, so it is refresh-rate independent and the ghost replay repeats it exactly:
-//   WIDE from the start of the pre-roll to tau = -200 ms; ease in-out to TIGHT by tau = min(300 ms, flight - 150 ms);
-//   exactly TIGHT, no motion, from there through the bounce, the call window and the verdict;
-//   under the review card (backAt, on the same clock), ease back to WIDE over 400 ms, so the next point starts wide.
-// Portrait, and the baseline and service-line seats, are always TIGHT.
-const ZOOM = { fov:1.5, up:2.5*Math.PI/180, from:-0.2, until:0.3, settle:0.15, back:0.4 };
-const moves = b => land && b.view==='side';
-const zoomEnd = b => Math.min(ZOOM.until, -b.t0-ZOOM.settle);   // tau at which the camera is TIGHT
-function wideness(b){   // 1 = WIDE, 0 = exactly TIGHT
-  if(!moves(b)) return 0;
-  const tau=b.t-b.t0, end=zoomEnd(b);
-  let w = tau<=ZOOM.from ? 1 : tau>=end ? 0 : 1-ease((tau-ZOOM.from)/(end-ZOOM.from));
-  if(b.backAt!==undefined && b.t>b.backAt) w=Math.max(w, ease((b.t-b.backAt)/ZOOM.back));
-  return w;
-}
-function applyCam(b){
-  const w=wideness(b);
-  FPX = w ? FPX0/(1+(ZOOM.fov-1)*w) : FPX0;
-  cam.pitch = w ? b.tight-ZOOM.up*w : b.tight;
-}
-
 // ---------- Attract mode ----------
 // Behind the menu and the other pre-play cards the court plays itself: every ~2.5 s a ball from a random seat, match
 // type and condition at the current level, through the same newBall()/stepBall() as play, then its mark and verdict on
@@ -948,9 +917,7 @@ function attractFrame(ts){
     newBall(); Object.assign(S, keep);
     // look further down the court until the landing spot sits low in the picture
     for(let f=fwd(ball.xL,ball.yL)+ball.geo.aim, k=0; k<120 && proj(ball.xL,ball.yL,0).sy<H*ATTRACT.low; k++) setPitch(f+=0.25);
-    ball.tight=cam.pitch;   // attract mode's TIGHT framing
     attract.start=ts+preRoll(ball)*1000; attract.mark=false; attract.next=attract.start+Math.max(ATTRACT.every-preRoll(ball), -ball.t0+ATTRACT.after)*1000;
-    ball.backAt=(attract.next-attract.start)/1000-ZOOM.back+ball.t0;   // back to WIDE over the last 400 ms before the next ball
   }
   const t=(ts-attract.start)/1000+ball.t0;
   stepBall(t); if(t>=0) attract.mark=true;
@@ -1137,7 +1104,6 @@ function verdict(b){
            clearlyIn: b.m+2*b.ext < -LINE_W };   // clearlyIn: the whole mark is inside the line's inner edge
 }
 function showEagle(right, call, elapsed){
-  if(ball) ball.backAt=(performance.now()-tStart)/1000+ball.t0;   // the camera eases back to WIDE under the review card, on the ball's clock
   const T=TIERS[S.tier], b=ball, v=verdict(b);
   const by = v.clearlyIn ? 'Well inside' : `${v.word} by ${v.mm} mm`;
   const dist = b.view==='side' ? b.yL : Math.hypot(b.xL-cam.x, b.yL-cam.y);

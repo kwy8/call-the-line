@@ -13,8 +13,7 @@
 //     groundstroke or serve zone (a serve from the half diagonally opposite its box), crosses the net between the posts
 //     with the required height, and travels from the far half towards the near half
 //   - under 5% of balls at any tier need their landing spot moved because no plausible stroke reached it
-// that the landscape sideline camera move starts WIDE and is exactly TIGHT from 150 ms before the bounce through the
-// verdict for every tier's shortest flight, at any refresh rate (portrait never moves), and that the player sprite frames cut at the right moments of the ball's clock, with the right pre-roll (groundstroke
+// and that the player sprite frames cut at the right moments of the ball's clock, with the right pre-roll (groundstroke
 // and serve), that the render loop keeps running after a call, and the squash lasts 45 ms at any refresh rate (one frame at least),
 // that the leaderboard Worker's score bounds match the game's real scoring, that the ghost replay and practice mode
 // behave (see that section), and that the daily challenge gives identical balls, seat, match type and level for the same date, plays every ball
@@ -46,7 +45,7 @@ const src = match[1].replace(END, `window.__ctl={ S, newBall, startPoint, resolv
   get ball(){ return ball; }, get W(){ return W; }, get H(){ return H; },
   LINE_W, MARK_L, MARK_W, SINGLES_W, ALLEY, DAILY_LEVELS, TIERS, CONDITIONS, pickCond, stepBall,
   ST, nextStep, practiceStart, handsTop, finishReplay, landDistance, pickSeat, SEAT_CHOICES,
-  shiftKey, streakAfterPlaying, streakNow, streakLoad, shareText, frameAt, preRoll, drawScene, wideness, zoomEnd, set ball(v){ ball=v; }, get FPX(){ return FPX; }, get replay(){ return replay; }, get PR(){ return PR; } };})();`);
+  shiftKey, streakAfterPlaying, streakNow, streakLoad, shareText, frameAt, preRoll, get replay(){ return replay; }, get PR(){ return PR; } };})();`);
 
 // A seeded Math.random so every run checks the same balls and a failure can be reproduced.
 function mulberry32(a) { return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -321,45 +320,6 @@ check(playDaily('2026-09-30T12:00:00', 1) !== playDaily('2026-10-01T12:00:00', 1
     for (const [tau, want] of sp.at) { const got = g.frameAt(b, tau); check(got === want, `${kind}: frame at tau ${tau} s is ${got}, expected ${want}`); }
   }
 }
-// ---------- sideline camera move (landscape only) ----------
-// The landing-spot checks above all run against TIGHT, the camera newBall() leaves. Here, for each tier's shortest
-// sideline flight (of 400 balls), the ball is stepped through the scene at 30, 60, 144 and 240 Hz from the start of its
-// pre-roll to 0.7 s past the end of its call window: the camera must start exactly WIDE (1.5x the field of view, 2.5
-// degrees up) and be exactly TIGHT (focal length and pitch bit-identical) from 150 ms before the bounce until the call
-// resolves and through the verdict. Under the review card it eases back to WIDE in 400 ms. Portrait never moves.
-const zoomMs = [];
-{
-  const L = boot('2026-09-30T10:00:00', 5, null, { width: 1280, height: 720, landscape: true }), F0 = 1400, UP = 2.5 * Math.PI / 180;
-  const P = boot('2026-09-30T10:00:00', 5, null, { width: 360, height: 445, landscape: false });
-  for (let tier = 0; tier < 5; tier++) {
-    let best = null;
-    for (let i = 0; i < 400; i++) {
-      Object.assign(L.S, { seat: i % 2 ? 'sideline-left' : 'sideline-right', match: i % 4 < 2 ? 'singles' : 'doubles', cond: 'day', tier, call: 1 }); L.newBall();
-      if (!best || L.ball.t0 > best.t0) best = L.ball;
-    }
-    const b = best, win = TIERS[tier].win, tag = `tier ${tier} shortest flight (${(-b.t0 * 1000).toFixed(0)} ms)`;
-    L.ball = b; Object.assign(L.cam, { x: b.geo.cam[0], y: b.geo.cam[1], yaw: b.geo.yaw, flip: b.flip });
-    zoomMs.push(Math.round((L.zoomEnd(b) + 0.2) * 1000));
-    for (const hz of [30, 60, 144, 240]) {
-      delete b.backAt; let bad = 0, first = true;
-      for (let t = b.t0 - L.preRoll(b); t <= win + 0.7; t += 1 / hz) {
-        L.stepBall(t); L.drawScene(0);
-        if (first) { check(L.FPX === F0 / 1.5 && L.cam.pitch === b.tight - UP, `${tag}, ${hz} Hz: the pre-roll must start exactly WIDE`); first = false; }
-        if (t >= -0.15 && !(L.FPX === F0 && L.cam.pitch === b.tight)) bad++;
-      }
-      check(bad === 0, `${tag}, ${hz} Hz: ${bad} frames not exactly TIGHT between 150 ms before the bounce and the verdict`);
-    }
-    b.backAt = win + 1; L.stepBall(win + 1 + 0.2); L.drawScene(0);
-    check(L.FPX < F0 && L.FPX > F0 / 1.5, `${tag}: on the way back to WIDE 200 ms into the review card`);
-    L.stepBall(win + 1 + 0.4); L.drawScene(0);
-    check(L.FPX === F0 / 1.5 && L.cam.pitch === b.tight - UP, `${tag}: exactly WIDE 400 ms into the review card`);
-  }
-  // portrait: the sideline camera never moves
-  Object.assign(P.S, { seat: 'sideline-right', match: 'singles', cond: 'day', tier: 4, call: 1 }); P.newBall();
-  const b = P.ball; let moved = 0; b.backAt = 1;
-  for (let t = b.t0 - P.preRoll(b); t <= 2; t += 1 / 60) { P.stepBall(t); P.drawScene(0); if (P.FPX !== 1400 || P.cam.pitch !== b.tight) moved++; }
-  check(moved === 0, `portrait sideline: the camera moved on ${moved} frames`);
-}
 // ---------- ghost replay and practice ----------
 {
   const frames = [], g = boot('2026-10-01T12:00:00', 21, frames), { S, els } = g;
@@ -455,5 +415,4 @@ if (failures.length) {
   for (const f of failures) console.error('  ' + f);
   process.exit(1);
 }
-console.log(`camera move: shortest zoom by tier ${zoomMs.join("/")} ms`);
 console.log(`check passed: ${balls} balls over ${Object.keys(SEATS).length} seat views (${Object.keys(g.SEAT_CHOICES).length} seats), 5 tiers, singles and doubles, ${Object.keys(CONDITIONS).length} conditions (${dampBalls} damp-grass balls with 20% longer marks; alley balls: ${alley.singles} singles, all out; ${alley.doubles} doubles, all in); every ball from a plausible hitter (least net clearance ${(minClear * 1000).toFixed(1)} mm; landing spot moved for ${movedPct.map(p => p.toFixed(1) + '%').join('/')} by tier); ${landscapeBalls} balls on screen in the 16:9 landscape court; daily identical on ${dates.length} dates; ${DAILY_FIXTURE.date} daily (${DAILY_FIXTURE.level}) matches the frozen fixture`);
